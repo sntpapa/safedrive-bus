@@ -36,6 +36,15 @@ fun SafeDriveTheme(content: @Composable () -> Unit) {
     )
 }
 
-val PassGreen = Color(0xFF4CD07D)
-val BlockRed = Color(0xFFFF6B6B)
-val WarnAmber = Color(0xFFFFC46B)
+/**
+ * 상태색은 테마마다 다른 값을 쓴다.
+ * 어두운 배경용 밝은 색을 밝은 배경에 그대로 쓰면 대비가 부족해 읽히지 않는다.
+ */
+val PassGreen: Color
+    @Composable get() = if (isSystemInDarkTheme()) Color(0xFF4CD07D) else Color(0xFF1B7F3F)
+
+val BlockRed: Color
+    @Composable get() = if (isSystemInDarkTheme()) Color(0xFFFF6B6B) else Color(0xFFB3261E)
+
+val WarnAmber: Color
+    @Composable get() = if (isSystemInDarkTheme()) Color(0xFFFFC46B) else Color(0xFF8A5200)

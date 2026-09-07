@@ -167,15 +167,22 @@ private fun SpeedCard(state: TelemetrySnapshot, onClick: () -> Unit) {
 @Composable
 private fun StatusPill(state: TelemetrySnapshot) {
     val (label, color) = statusOf(state)
+    // 색 위에 같은 색 글씨를 얹으면 대비가 부족하다. 배경은 아주 옅게, 글씨는 원색으로 둔다.
     Box(
         Modifier
-            .background(color.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
+            .background(color.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
             .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
-        Text(label, color = color, style = MaterialTheme.typography.labelLarge)
+        Text(
+            label,
+            color = color,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
+@Composable
 private fun statusOf(state: TelemetrySnapshot): Pair<String, Color> = when {
     !state.serviceRunning -> "정지됨" to BlockRed
     !state.alignment.aligned ->

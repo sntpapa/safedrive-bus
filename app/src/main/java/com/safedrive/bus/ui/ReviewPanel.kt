@@ -203,6 +203,7 @@ private fun RangeChip(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+@Composable
 private fun severityColor(e: DrivingEvent): Color = when (e.type) {
     EventType.HARSH_DECEL, EventType.HARSH_STOP,
     EventType.OVERSPEED, EventType.LONG_OVERSPEED -> BlockRed
