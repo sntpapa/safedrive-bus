@@ -19,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -244,6 +245,8 @@ private fun SpeedZoneSection(
         mutableStateOf(Constants.SPEED_ZONE_DEFAULT_RADIUS_M.toInt().toString())
     }
     var error by remember { mutableStateOf("") }
+    // 도로 데이터가 대부분을 자동으로 채우므로 등록 폼은 평소에 접어 둔다.
+    var expanded by remember { mutableStateOf(false) }
 
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -263,6 +266,35 @@ private fun SpeedZoneSection(
                 if (roadDataReady) roadDataSource else "없음",
                 valueColor = if (roadDataReady) PassGreen else BlockRed
             )
+
+            if (zones.isNotEmpty()) {
+                zones.forEach { z ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(z.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "%.0f km/h · 반경 %.0fm".format(z.limitKmh, z.radiusM),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = { onDelete(z) }) {
+                            Text("삭제", color = BlockRed, maxLines = 1)
+                        }
+                    }
+                }
+            }
+
+            if (!expanded) {
+                OutlinedButton(
+                    onClick = { expanded = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("데이터가 틀린 구간 직접 등록", maxLines = 1)
+                }
+                return@Column
+            }
+
             KeyValue(
                 "현재 좌표",
                 if (hasFix) "%.5f, %.5f".format(currentLatitude, currentLongitude)
@@ -319,28 +351,12 @@ private fun SpeedZoneSection(
                 Text("현재 위치에 등록")
             }
 
-            if (zones.isNotEmpty()) {
-                zones.forEach { z ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(z.name, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "%.0f km/h · 반경 %.0fm".format(z.limitKmh, z.radiusM),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        TextButton(onClick = { onDelete(z) }) {
-                            Text("삭제", color = BlockRed)
-                        }
-                    }
-                }
-                Text(
-                    "구간이 겹치면 반경이 작은 쪽이 우선합니다. 변경은 다음 수집 시작부터 적용됩니다.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                "구간이 겹치면 반경이 작은 쪽이 우선합니다. 변경은 다음 수집 시작부터 적용됩니다.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = { expanded = false }) { Text("접기", maxLines = 1) }
         }
     }
 }

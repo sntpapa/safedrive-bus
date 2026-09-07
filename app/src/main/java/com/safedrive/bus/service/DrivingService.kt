@@ -421,9 +421,15 @@ class DrivingService : LifecycleService() {
             speedKmh = (motion.gpsSpeedMps ?: 0f) * 3.6f
         )
         currentMatch = match
-        // 어린이보호구역 근처인데 제한속도가 40 이상으로 잡힌 구간은 데이터가 실제 규제를
-        // 반영하지 못했을 수 있다. 매칭 실패와 똑같이 과속 판정을 보류한다.
-        currentSpeedLimitKmh = if (match == null || match.schoolSuspect) null else match.limitKmh
+        // 과속 판정을 보류하는 두 경우.
+        //  - 어린이보호구역 근처인데 제한속도가 40 이상: 데이터가 실제 규제를 반영 못 했을 수 있다
+        //  - 제한속도가 30 미만: 주차장 진출입로 같은 이면도로에 잘못 매칭됐을 가능성이 크다
+        currentSpeedLimitKmh = when {
+            match == null -> null
+            match.schoolSuspect -> null
+            match.limitKmh < Constants.MIN_TRUSTED_SPEED_LIMIT_KMH -> null
+            else -> match.limitKmh
+        }
     }
 
     // ------------------------------------------------------------------

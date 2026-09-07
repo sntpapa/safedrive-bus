@@ -81,7 +81,13 @@ class JudgementEngine(
 ) {
 
     private val history = MotionHistory()
-    private val lastFiredWallMs = HashMap<EventType, Long>()
+    /**
+     * 디바운스는 유형이 아니라 계열 단위로 건다.
+     *
+     * 정류소 진입 제동 한 번에서 급감속과 급정지가 따로 잡혀 한 사건이 2~3건으로
+     * 세지고 있었다(실측: 3초 사이에 급감속-급감속-급정지).
+     */
+    private val lastFiredWallMs = HashMap<String, Long>()
 
     private var unmatchedLimitSamples = 0L
     private var overspeedSinceWallMs = 0L
@@ -166,6 +172,14 @@ class JudgementEngine(
                 if (decel >= th) fire(EventType.HARSH_DECEL, i, from, dv, th)
             }
         }
+    }
+
+    /** 같은 사건으로 볼 유형 묶음. 디바운스는 이 단위로 건다. */
+    private fun debounceGroup(type: EventType): String = when (type) {
+        EventType.HARSH_DECEL, EventType.HARSH_STOP -> "DECEL"
+        EventType.HARSH_ACCEL, EventType.HARSH_START -> "ACCEL"
+        EventType.SHARP_TURN, EventType.SHARP_UTURN -> "TURN"
+        else -> type.name
     }
 
     /** 종방향 이벤트의 방향. 가속 +1, 감속 -1, 그 외 0. */
@@ -334,9 +348,10 @@ class JudgementEngine(
         turnDirection: TurnDirection = TurnDirection.NONE,
         applyBorderline: Boolean = true
     ): Boolean {
-        val last = lastFiredWallMs[type] ?: 0L
+        val group = debounceGroup(type)
+        val last = lastFiredWallMs[group] ?: 0L
         if (last != 0L && i.wallMs - last < Constants.WARNING_DEBOUNCE_MS) return false
-        lastFiredWallMs[type] = i.wallMs
+        lastFiredWallMs[group] = i.wallMs
 
         val excessRatio = if (threshold <= 0f) 1f else (abs(magnitude) - threshold) / threshold
         val borderline = applyBorderline && excessRatio < Constants.BORDERLINE_MARGIN_RATIO
@@ -349,7 +364,14 @@ class JudgementEngine(
             sign != lastLongitudinalSign &&
             i.wallMs - lastLongitudinalWallMs < Constants.CONFLICT_WINDOW_MS
 
+        // 차량이 낼 수 없는 값이면 판정이 아니라 측정 오류다.
+        val implausible = sign != 0 && when {
+            sign > 0 -> magnitude > Constants.PLAUSIBLE_MAX_ACCEL_KMH_PER_SEC
+            else -> -magnitude > Constants.PLAUSIBLE_MAX_DECEL_KMH_PER_SEC
+        }
+
         val reason = when {
+            implausible -> SuppressReason.IMPLAUSIBLE
             conflicting -> SuppressReason.CONFLICTING_DIRECTION
             borderline && !i.pitchReliable -> SuppressReason.BORDERLINE_PITCH
             borderline && shock -> SuppressReason.BORDERLINE_SHOCK
