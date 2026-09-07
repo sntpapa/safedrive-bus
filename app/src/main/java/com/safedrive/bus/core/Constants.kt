@@ -216,6 +216,15 @@ object Constants {
     /** 유형별 최소 디바운스. 프롬프트 지정값. */
     const val WARNING_DEBOUNCE_MS: Long = 3000L
 
+    /**
+     * 주행 화면의 정지 버튼을 누르고 있어야 하는 시간 [ms].
+     *
+     * 운전 중 오터치로 수집이 끊기면 그 구간이 통째로 사라진다. 그렇다고 정지를
+     * 알림과 설정에만 두면 고령 사용자가 멈추는 방법을 찾기 어렵다.
+     * 위치는 항상 고정하되 스치듯 닿는 것으로는 멈추지 않게 한다.
+     */
+    const val HOLD_TO_STOP_MS: Int = 1500
+
     /** 경고 화면 플래시 유지 시간. TTS 발화 길이와 맞춘다. */
     const val ALERT_DISPLAY_MS: Long = 2500L
 

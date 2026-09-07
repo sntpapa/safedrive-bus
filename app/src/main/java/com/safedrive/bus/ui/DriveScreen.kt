@@ -1,12 +1,18 @@
 package com.safedrive.bus.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,14 +25,24 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.safedrive.bus.core.Constants
 import com.safedrive.bus.core.EventType
 import com.safedrive.bus.service.TelemetrySnapshot
 
@@ -45,7 +61,8 @@ fun DriveScreen(
     reviewManuallyOpen: Boolean,
     reviewRange: ReviewRange,
     onToggleReview: () -> Unit,
-    onReviewRangeChange: (ReviewRange) -> Unit
+    onReviewRangeChange: (ReviewRange) -> Unit,
+    onStopService: () -> Unit
 ) {
     val autoOpen = state.serviceRunning && state.review.stopped
     val showReview = autoOpen || reviewManuallyOpen
@@ -88,7 +105,73 @@ fun DriveScreen(
 
         EventTiles(state)
 
+        if (state.serviceRunning) HoldToStopButton(onStopService)
+
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/**
+ * 길게 눌러야 멈추는 정지 버튼.
+ *
+ * 위치를 항상 고정해 찾기 쉽게 하되, 운전 중 스치듯 닿는 것으로는 멈추지 않게 한다.
+ * 누르는 동안 띠가 차올라 얼마나 남았는지 보인다. 손을 떼면 처음으로 돌아간다.
+ */
+@Composable
+private fun HoldToStopButton(onStop: () -> Unit) {
+    var pressed by remember { mutableStateOf(false) }
+    val progress = remember { Animatable(0f) }
+    val haptics = LocalHapticFeedback.current
+
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            progress.animateTo(1f, tween(Constants.HOLD_TO_STOP_MS, easing = LinearEasing))
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            onStop()
+        } else {
+            progress.snapTo(0f)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.5.dp, BlockRed, RoundedCornerShape(12.dp))
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = {
+                            pressed = true
+                            tryAwaitRelease()
+                            pressed = false
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(progress.value)
+                    .background(BlockRed.copy(alpha = 0.25f))
+                    .align(Alignment.CenterStart)
+            )
+            Text(
+                "길게 눌러 수집 정지",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = BlockRed,
+                maxLines = 1
+            )
+        }
+        Text(
+            "운행이 끝났을 때 1.5초간 누르세요",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
     }
 }
 

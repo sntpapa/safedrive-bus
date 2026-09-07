@@ -272,7 +272,11 @@ class MainActivity : ComponentActivity() {
                             reviewManuallyOpen = reviewOpen,
                             reviewRange = reviewRange,
                             onToggleReview = { reviewOpen = !reviewOpen },
-                            onReviewRangeChange = { reviewRange = it }
+                            onReviewRangeChange = { reviewRange = it },
+                            onStopService = {
+                                prefs.userStopped = true
+                                DrivingService.stop(this@MainActivity)
+                            }
                         )
 
                         Tab.HISTORY -> HistoryScreen(
