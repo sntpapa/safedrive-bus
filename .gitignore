@@ -13,3 +13,11 @@ local.properties
 *.apk
 *.aab
 *.zip
+
+# 공공데이터 원본과 그로부터 생성한 DB는 저장소에 넣지 않는다.
+# 재배포 조건이 각 제공처 라이선스에 달려 있어 확인 전까지는 각자 내려받아 생성한다.
+*.db
+tools/nodelink/
+tools/*.shp
+tools/*.dbf
+tools/*.shx
