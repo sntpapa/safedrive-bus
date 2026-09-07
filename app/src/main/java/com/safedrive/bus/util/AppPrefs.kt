@@ -29,6 +29,17 @@ class AppPrefs(context: Context) {
         set(v) = sp.edit().putBoolean(KEY_AUTO_START, v).apply()
 
     /**
+     * 사용자가 직접 정지를 눌렀는지.
+     *
+     * 이 값이 true인 동안에는 자동 시작이 동작하지 않는다. 없으면 정지를 눌러도
+     * 화면이 열려 있는 한 자동 시작이 즉시 다시 켜서 종료가 되지 않는다.
+     * 앱을 새로 열면 해제된다.
+     */
+    var userStopped: Boolean
+        get() = sp.getBoolean(KEY_USER_STOPPED, false)
+        set(v) = sp.edit().putBoolean(KEY_USER_STOPPED, v).apply()
+
+    /**
      * 진단 모드. 켜면 자이로 원시값을 기기 내부 파일로 저장한다.
      * 급진로변경·급앞지르기는 판정하지 않지만 향후 재검토를 위해 원시값만 남긴다.
      * 평상시에는 저장하지 않는다.
@@ -115,6 +126,7 @@ class AppPrefs(context: Context) {
         const val KEY_S_RESTART = "session_restart_count"
         const val KEY_TEXT_SCALE = "text_scale"
         const val KEY_AUTO_START = "auto_start"
+        const val KEY_USER_STOPPED = "user_stopped"
         const val KEY_DIAG = "diagnostic_recording"
         const val KEY_KEEP_AWAKE = "keep_awake"
     }

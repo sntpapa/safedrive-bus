@@ -4,20 +4,25 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -48,6 +54,48 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.net.Uri
+
+@Composable
+private fun ExitDialog(
+    serviceRunning: Boolean,
+    onDismiss: () -> Unit,
+    onCloseKeepRunning: () -> Unit,
+    onStopAndClose: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("앱을 닫을까요?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    if (serviceRunning) {
+                        "앱을 닫아도 수집은 계속됩니다. 화면을 끄고 운행해야 하기 때문입니다. " +
+                            "운행이 끝났다면 아래에서 수집까지 멈출 수 있습니다."
+                    } else {
+                        "수집은 이미 정지된 상태입니다."
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (serviceRunning) {
+                    TextButton(
+                        onClick = onStopAndClose,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("수집도 정지하고 닫기", maxLines = 1)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onCloseKeepRunning) {
+                Text(if (serviceRunning) "닫기 (수집 유지)" else "닫기", maxLines = 1)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("취소", maxLines = 1) }
+        }
+    )
+}
 
 private enum class Tab(val label: String) {
     DRIVE("주행"),
@@ -72,6 +120,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         prefs = AppPrefs(this)
+        // 앱을 새로 여는 것은 운행하겠다는 뜻이므로 직전의 정지 표시를 푼다.
+        prefs.userStopped = false
 
         setContent {
             SafeDriveTheme {
@@ -157,7 +207,9 @@ class MainActivity : ComponentActivity() {
         // 권한이 없으면 시작하지 않는다. API 34+ 에서 location 타입 FGS를 권한 없이
         // 시작하면 SecurityException으로 즉시 종료되기 때문이다.
         LaunchedEffect(autoStart, state.serviceRunning, permissionTick) {
-            if (autoStart && !state.serviceRunning && Permissions.hasFineLocation(this@MainActivity)) {
+            if (autoStart && !state.serviceRunning && !prefs.userStopped &&
+                Permissions.hasFineLocation(this@MainActivity)
+            ) {
                 DrivingService.start(this@MainActivity)
             }
         }
@@ -176,6 +228,30 @@ class MainActivity : ComponentActivity() {
 
         var exportMessage by remember { mutableStateOf("") }
         var exportedUri by remember { mutableStateOf<Uri?>(null) }
+        var confirmExit by remember { mutableStateOf(false) }
+
+        // 뒤로가기로 바로 닫히면 운행 중 실수로 화면을 잃는다.
+        // 다른 탭에 있으면 주행 탭으로 먼저 돌아가고, 주행 탭에서만 확인을 묻는다.
+        BackHandler {
+            if (tab != Tab.DRIVE) tab = Tab.DRIVE else confirmExit = true
+        }
+
+        if (confirmExit) {
+            ExitDialog(
+                serviceRunning = state.serviceRunning,
+                onDismiss = { confirmExit = false },
+                onCloseKeepRunning = {
+                    confirmExit = false
+                    finish()
+                },
+                onStopAndClose = {
+                    confirmExit = false
+                    prefs.userStopped = true
+                    DrivingService.stop(this@MainActivity)
+                    finish()
+                }
+            )
+        }
 
         // 시스템 글꼴 배율 위에 앱 배율을 곱한다. 기기 설정을 무시하지 않으면서
         // 줄바꿈이 생기는 기기에서 사용자가 직접 줄일 수 있게 한다.
@@ -253,6 +329,7 @@ class MainActivity : ComponentActivity() {
                                 textScale = it
                             },
                             onStartService = {
+                                prefs.userStopped = false
                                 if (!Permissions.hasFineLocation(this@MainActivity)) {
                                     foregroundPermissionLauncher
                                         .launch(Permissions.foregroundRequest())

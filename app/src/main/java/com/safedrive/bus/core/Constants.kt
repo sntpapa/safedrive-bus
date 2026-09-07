@@ -56,10 +56,9 @@ object Constants {
     const val LOCATION_INTERVAL_MS: Long = 1000L
 
     /** 이 값을 넘는 수평정확도는 신뢰하지 않는다.
-     *  근거: 도심 시내버스 노선의 개활 구간 GNSS 수평정확도는 통상 5~15m.
-     *  20m를 넘으면 빌딩 협곡/터널 진입부로 보고 속도 기반 판정을 중단한다.
-     *  TODO(실측): 실제 노선에서 accuracy 분포를 수집해 재조정. */
-    const val GPS_ACCURACY_MAX_M: Float = 20.0f
+     *  실측 근거: 정상 이벤트의 GPS 정확도는 3~10m에 몰려 있었고, 속도가 널뛰던
+     *  구간(66->46->60->46 km/h)은 14~16m였다. 처음 잡은 20m로는 그 구간이 통과했다. */
+    const val GPS_ACCURACY_MAX_M: Float = 15.0f
 
     /** 마지막 위치 갱신이 이보다 오래되면 GPS 게이트 차단. */
     const val GPS_MAX_AGE_MS: Long = 3000L
@@ -276,7 +275,7 @@ object Constants {
      * 4.2~6.7 m/s^2로 물리적으로 불가능하다. GNSS 속도가 튄 것이다.
      * 여유를 크게 두어 명백히 불가능한 값만 걸러낸다.
      */
-    const val PLAUSIBLE_MAX_ACCEL_KMH_PER_SEC: Float = 12.0f
+    const val PLAUSIBLE_MAX_ACCEL_KMH_PER_SEC: Float = 10.0f
 
     /**
      * 감속 상한 [km/h/s]. 비상 제동(4~5 m/s^2 = 14~18)까지 포함해 잡는다.
@@ -292,6 +291,16 @@ object Constants {
      * 어린이보호구역은 30이므로 영향을 받지 않는다.
      */
     const val MIN_TRUSTED_SPEED_LIMIT_KMH: Double = 30.0
+
+    /**
+     * 판정값이 GPS 속도 잡음의 몇 배는 되어야 신뢰할지.
+     *
+     * 1초 창 속도 차분의 표준편차는 대략 sqrt(2) x 속도정확도다.
+     * 실측에서 속도정확도 1.07 m/s(= 차분 표준편차 5.4 km/h/s)인 구간에서
+     * 급가속 판정값 6.01이 나왔다. 임계값을 넘긴 것이 아니라 잡음이 그만큼 컸던 것이다.
+     * 이 비율을 못 넘으면 판정은 기록하되 경고는 내지 않는다.
+     */
+    const val MIN_JUDGE_SNR: Float = 2.5f
 
     /**
      * 이 속도 미만에서는 가감속/회전 판정을 하지 않는다.

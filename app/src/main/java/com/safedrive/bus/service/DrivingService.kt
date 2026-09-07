@@ -163,6 +163,8 @@ class DrivingService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == ACTION_STOP) {
+            // 사용자가 직접 멈춘 것이므로 자동 시작이 다시 켜지 않도록 표시해 둔다.
+            prefs.userStopped = true
             stopSelf()
             return START_NOT_STICKY
         }

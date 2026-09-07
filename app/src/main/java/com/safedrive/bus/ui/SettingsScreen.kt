@@ -91,7 +91,13 @@ fun SettingsScreen(
                     }
                 }
                 Text(
-                    "상단바 알림의 ‘정지’로도 멈출 수 있습니다.",
+                    if (state.serviceRunning) {
+                        "상단바 알림의 ‘정지’로도 멈출 수 있습니다. 앱을 닫아도 수집은 " +
+                            "계속됩니다. 화면을 끄고 운행해야 하기 때문입니다."
+                    } else {
+                        "정지 상태입니다. 알림도 사라집니다. 앱을 다시 열거나 위 ‘시작’을 " +
+                            "누르면 수집이 다시 시작됩니다."
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

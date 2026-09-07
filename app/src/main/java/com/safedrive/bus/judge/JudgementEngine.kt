@@ -370,8 +370,14 @@ class JudgementEngine(
             else -> -magnitude > Constants.PLAUSIBLE_MAX_DECEL_KMH_PER_SEC
         }
 
+        // GPS 속도 잡음보다 충분히 크지 않으면 판정값을 신뢰할 수 없다.
+        val sigma = i.speedAccuracyMps?.takeIf { it > 0f }?.let { it * 1.4142f * 3.6f }
+        val lowSnr = sign != 0 && sigma != null &&
+            abs(magnitude) < sigma * Constants.MIN_JUDGE_SNR
+
         val reason = when {
             implausible -> SuppressReason.IMPLAUSIBLE
+            lowSnr -> SuppressReason.LOW_SNR
             conflicting -> SuppressReason.CONFLICTING_DIRECTION
             borderline && !i.pitchReliable -> SuppressReason.BORDERLINE_PITCH
             borderline && shock -> SuppressReason.BORDERLINE_SHOCK

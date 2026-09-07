@@ -26,6 +26,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.safedrive.bus.core.Constants
 import com.safedrive.bus.gate.Gate
@@ -499,6 +501,13 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     )
 }
 
+/**
+ * 항목명과 값을 한 줄에 놓는다.
+ *
+ * 값에 폭을 주지 않으면 값이 길 때 항목명 칸이 0까지 눌려 글자가 한 자씩 세로로
+ * 쪼개진다. 글자 크기를 키운 기기에서 실제로 그렇게 나왔다.
+ * 양쪽에 가중치를 주고 줄 수를 제한해 어느 쪽도 무너지지 않게 한다.
+ */
 @Composable
 fun KeyValue(key: String, value: String, valueColor: Color? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -506,13 +515,20 @@ fun KeyValue(key: String, value: String, valueColor: Color? = null) {
             key,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
+        Spacer(Modifier.size(8.dp))
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,
             fontFamily = FontFamily.Monospace,
-            color = valueColor ?: MaterialTheme.colorScheme.onSurface
+            color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.End,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1.5f)
         )
     }
 }
