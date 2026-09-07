@@ -226,7 +226,7 @@ private fun EventTiles(state: TelemetrySnapshot) {
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    "%.1f km · %s".format(km, formatDuration(state.gaps.sessionDurationMs)),
+                    "%.1f km · %s".format(km, formatDuration(state.tripDurationMs)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

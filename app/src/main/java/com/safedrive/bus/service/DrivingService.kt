@@ -131,6 +131,15 @@ class DrivingService : LifecycleService() {
 
     private var lastHeartbeatMs = 0L
 
+    /**
+     * 직전 운행 이어받기가 끝났는지.
+     *
+     * 이 값이 false인 동안에는 생존 신호를 쓰지 않는다. 게시 루프가 먼저 돌면
+     * 아직 0인 누적 거리로 저장값을 덮어써서 이어받을 거리가 사라진다.
+     */
+    @Volatile
+    private var sessionReady = false
+
     override fun onCreate() {
         super.onCreate()
         prefs = AppPrefs(this)
@@ -210,6 +219,7 @@ class DrivingService : LifecycleService() {
         lastWarnWallMs = 0L
         lastWarnDistanceM = 0.0
         lastHeartbeatMs = 0L
+        sessionReady = false
         currentSpeedLimitKmh = null
         currentMatch = null
         gateSnapshot = GateSnapshot.INITIAL
@@ -296,6 +306,7 @@ class DrivingService : LifecycleService() {
             prefs.sessionRestartCount = 0
         }
         prefs.sessionHeartbeat = now
+        sessionReady = true
     }
 
     private fun stopCollection() {
@@ -484,6 +495,7 @@ class DrivingService : LifecycleService() {
                     eventCounts = HashMap(eventCounts),
                     warnedCounts = HashMap(warnedCounts),
                     review = review.state(),
+                    tripDurationMs = System.currentTimeMillis() - startedAtWallMs,
                     noWarnDurationMs = System.currentTimeMillis() -
                         (if (lastWarnWallMs != 0L) lastWarnWallMs else startedAtWallMs),
                     noWarnDistanceM = (mot.distanceM - lastWarnDistanceM).coerceAtLeast(0.0),
@@ -492,7 +504,7 @@ class DrivingService : LifecycleService() {
             }
 
             val nowWall = System.currentTimeMillis()
-            if (nowWall - lastHeartbeatMs > Constants.SESSION_HEARTBEAT_INTERVAL_MS) {
+            if (sessionReady && nowWall - lastHeartbeatMs > Constants.SESSION_HEARTBEAT_INTERVAL_MS) {
                 lastHeartbeatMs = nowWall
                 prefs.sessionHeartbeat = nowWall
                 prefs.sessionDistanceM = mot.distanceM.toFloat()

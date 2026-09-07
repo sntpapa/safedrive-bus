@@ -47,6 +47,13 @@ data class TelemetrySnapshot(
     val warnedCounts: Map<EventType, Int> = emptyMap(),
     /** 정차 리뷰 상태. 정지 3초가 지나면 화면이 자동으로 리뷰로 바뀐다. */
     val review: ReviewState = ReviewState(),
+    /**
+     * 운행 시작부터의 경과 시간 [ms].
+     *
+     * 끊김 기록기의 세션 시간과 다르다. 그쪽은 서비스 인스턴스 기준이라 서비스가
+     * 되살아나면 0부터 다시 세지만, 기사에게 보여 줄 운행 시간은 이어져야 한다.
+     */
+    val tripDurationMs: Long = 0L,
     /** 마지막 경고 이후 경과 시간 [ms]. 경고가 없었으면 운행 시작부터. */
     val noWarnDurationMs: Long = 0L,
     /** 마지막 경고 이후 주행한 거리 [m]. */
