@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SafeDrive</string>
+    <string name="notification_title">주행 데이터 수집 중</string>
+    <string name="channel_service">주행 수집</string>
+    <string name="channel_service_desc">센서 수집이 동작 중임을 알립니다.</string>
+    <string name="stop">정지</string>
+</resources>
