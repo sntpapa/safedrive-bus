@@ -191,14 +191,12 @@ private fun StatusPill(state: TelemetrySnapshot) {
 @Composable
 private fun statusOf(state: TelemetrySnapshot): Pair<String, Color> = when {
     !state.serviceRunning -> "정지됨" to BlockRed
-    !state.alignment.aligned ->
-        "보정 중 %.0f%%".format(state.alignment.overallProgress * 100) to WarnAmber
-
-    state.gates.warningAllowed -> "감지 중" to PassGreen
+    // 가감속·과속 경고가 가능한지를 기준으로 표시한다. 이 둘이 대부분의 경고를 차지한다.
     !state.gates.gpsQuality.passed -> "경고 보류 · GPS" to BlockRed
-    !state.gates.mountStability.passed -> "경고 보류 · 거치" to BlockRed
     !state.gates.sensorContinuity.passed -> "경고 보류 · 센서" to BlockRed
-    else -> "경고 보류" to BlockRed
+    state.gates.warningAllowed -> "감지 중" to PassGreen
+    // 여기부터는 가감속·과속은 감지되고 회전만 대기 중인 상태다.
+    else -> "감지 중 · 회전 대기" to PassGreen
 }
 
 // ----------------------------------------------------------------------

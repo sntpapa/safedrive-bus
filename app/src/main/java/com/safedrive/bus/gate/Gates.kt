@@ -2,6 +2,7 @@ package com.safedrive.bus.gate
 
 import com.safedrive.bus.align.AlignmentSnapshot
 import com.safedrive.bus.core.Constants
+import com.safedrive.bus.core.EventType
 import com.safedrive.bus.diag.GapSummary
 import com.safedrive.bus.fusion.MotionSnapshot
 import com.safedrive.bus.sensor.SensorHealth
@@ -30,11 +31,32 @@ data class GateSnapshot(
 ) {
     val all: List<Gate> get() = listOf(alignment, gpsQuality, sensorContinuity, mountStability)
 
-    /** 모든 게이트 통과 = 경고를 낼 수 있는 상태 */
+    /** 모든 게이트 통과. 회전 유형처럼 IMU 정렬이 필요한 판정의 경고 조건이다. */
     val warningAllowed: Boolean get() = all.all { it.passed }
 
     /** 속도 기반 판정(과속/장기과속)에 필요한 게이트만 본다. */
     val speedJudgementAllowed: Boolean get() = gpsQuality.passed && sensorContinuity.passed
+
+    /**
+     * 유형별로 실제 필요한 게이트만 본다.
+     *
+     * 가감속과 과속은 1초 창의 GPS 속도 변화량으로 판정하므로 좌표계 정렬이나 거치 상태와
+     * 무관하다. 그런 유형까지 정렬을 기다리게 하면 보정이 막힌 동안 경고가 전혀 나가지
+     * 않는다. 반면 회전은 요레이트를 쓰므로 4개 게이트가 모두 필요하다.
+     */
+    fun allowsWarningFor(type: EventType): Boolean = when (type) {
+        EventType.SHARP_TURN, EventType.SHARP_UTURN -> warningAllowed
+        else -> speedJudgementAllowed
+    }
+
+    /** 유형별로 무엇이 막고 있는지. 기록에 남길 사유 문자열. */
+    fun blockedReasonFor(type: EventType): String {
+        val needed = when (type) {
+            EventType.SHARP_TURN, EventType.SHARP_UTURN -> all
+            else -> listOf(gpsQuality, sensorContinuity)
+        }
+        return needed.filter { !it.passed }.joinToString(" · ") { it.detail }
+    }
 
     val blockedReasons: List<String> get() = all.filter { !it.passed }.map { it.detail }
 

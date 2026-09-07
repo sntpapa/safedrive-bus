@@ -208,8 +208,19 @@ private fun GateCard(state: TelemetrySnapshot) {
             GateRow("GPS 품질", state.gates.gpsQuality)
             GateRow("센서 연속성", state.gates.sensorContinuity)
             GateRow("거치 안정성", state.gates.mountStability)
+            KeyValue(
+                "가감속 · 과속 경고",
+                if (state.gates.speedJudgementAllowed) "가능" else "보류",
+                valueColor = if (state.gates.speedJudgementAllowed) PassGreen else BlockRed
+            )
+            KeyValue(
+                "회전 경고",
+                if (state.gates.warningAllowed) "가능" else "보류",
+                valueColor = if (state.gates.warningAllowed) PassGreen else BlockRed
+            )
             Text(
-                "게이트가 막혀도 판정은 계속 수행되고 이벤트는 기록됩니다. 경고만 나가지 않습니다.",
+                "유형별로 필요한 게이트만 봅니다. 가감속·과속은 GPS 품질과 센서 연속성, " +
+                    "회전은 4개 전부입니다. 막혀도 판정은 계속되고 이벤트는 기록됩니다.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

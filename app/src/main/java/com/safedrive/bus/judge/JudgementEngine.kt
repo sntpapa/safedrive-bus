@@ -68,6 +68,8 @@ data class JudgeStats(
  * 게이트 처리
  * ----------
  *  - 게이트가 막혀도 판정은 계속하고 이벤트를 기록한다. 경고만 내보내지 않는다.
+ *  - 게이트는 유형별로 필요한 것만 본다. 가감속·과속은 GPS 품질과 센서 연속성,
+ *    회전은 4개 전부. 판정 신호가 쓰지 않는 게이트까지 요구하면 경고가 부당하게 막힌다.
  *  - 예외: GPS 품질 게이트가 막히면 과속/장기과속은 판정 자체를 보류한다(기준표 지시).
  */
 class JudgementEngine(
@@ -329,7 +331,7 @@ class JudgementEngine(
         val reason = when {
             borderline && !i.pitchReliable -> SuppressReason.BORDERLINE_PITCH
             borderline && shock -> SuppressReason.BORDERLINE_SHOCK
-            !i.gates.warningAllowed -> SuppressReason.GATE_BLOCKED
+            !i.gates.allowsWarningFor(type) -> SuppressReason.GATE_BLOCKED
             else -> SuppressReason.NONE
         }
 
