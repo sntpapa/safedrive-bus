@@ -25,11 +25,12 @@
 
 ## 화면
 
-| 설정 · 구간 제한속도 |
-|---|
-| ![설정 화면](docs/screenshots/04-settings-speed-zone.jpg) |
+| 주행 | 정차 리뷰 | 운행 이력 |
+|---|---|---|
+| ![주행](docs/screenshots/01-drive.jpg) | ![정차 리뷰](docs/screenshots/02-review.jpg) | ![이력](docs/screenshots/04-history.jpg) |
 
-*(주행 화면, 정차 리뷰, 이력 화면 캡처 추가 예정)*
+개발 과정과 실차 시험에서 찾아 고친 결함은 [docs/WORKLOG.md](docs/WORKLOG.md)에
+정리해 두었습니다.
 
 ---
 
