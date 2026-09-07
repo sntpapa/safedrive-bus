@@ -23,6 +23,8 @@ data class JudgeInput(
     val latitude: Double,
     val longitude: Double,
     val gpsAccuracyM: Float,
+    /** GPS 속도정확도 [m/s]. 저속 구간 오탐을 가려내기 위해 이벤트에 함께 남긴다. */
+    val speedAccuracyMps: Float?,
     /** 현재 위치의 구간 제한속도. 매칭 실패 시 null. */
     val speedLimitKmh: Double?,
     val gates: GateSnapshot,
@@ -90,6 +92,10 @@ class JudgementEngine(
     private var lastSharpTurnWallMs = 0L
     private var lastSharpTurnDirection = TurnDirection.NONE
 
+    /** 직전 종방향 이벤트의 시각과 방향(+가속 / -감속). 상호 배제 판단에 쓴다. */
+    private var lastLongitudinalWallMs = 0L
+    private var lastLongitudinalSign = 0
+
     fun reset() {
         history.clear()
         lastFiredWallMs.clear()
@@ -100,6 +106,8 @@ class JudgementEngine(
         overspeedClearSinceWallMs = 0L
         lastSharpTurnWallMs = 0L
         lastSharpTurnDirection = TurnDirection.NONE
+        lastLongitudinalWallMs = 0L
+        lastLongitudinalSign = 0
     }
 
     fun stats(): JudgeStats = JudgeStats(
@@ -158,6 +166,13 @@ class JudgementEngine(
                 if (decel >= th) fire(EventType.HARSH_DECEL, i, from, dv, th)
             }
         }
+    }
+
+    /** 종방향 이벤트의 방향. 가속 +1, 감속 -1, 그 외 0. */
+    private fun longitudinalSign(type: EventType): Int = when (type) {
+        EventType.HARSH_ACCEL, EventType.HARSH_START -> 1
+        EventType.HARSH_DECEL, EventType.HARSH_STOP -> -1
+        else -> 0
     }
 
     /** 급가속 속도대역별 임계값. 6km/h 미만은 급출발 영역이라 null. */
@@ -328,11 +343,23 @@ class JudgementEngine(
         val shock = applyBorderline &&
             history.peakVerticalAbs(windowFromNs, i.timestampNs) > Constants.VERTICAL_SHOCK_MPS2
 
+        // 가속 계열과 감속 계열이 연달아 나오면 물리적으로 불가능한 조합이다.
+        val sign = longitudinalSign(type)
+        val conflicting = sign != 0 && lastLongitudinalSign != 0 &&
+            sign != lastLongitudinalSign &&
+            i.wallMs - lastLongitudinalWallMs < Constants.CONFLICT_WINDOW_MS
+
         val reason = when {
+            conflicting -> SuppressReason.CONFLICTING_DIRECTION
             borderline && !i.pitchReliable -> SuppressReason.BORDERLINE_PITCH
             borderline && shock -> SuppressReason.BORDERLINE_SHOCK
             !i.gates.allowsWarningFor(type) -> SuppressReason.GATE_BLOCKED
             else -> SuppressReason.NONE
+        }
+
+        if (sign != 0) {
+            lastLongitudinalWallMs = i.wallMs
+            lastLongitudinalSign = sign
         }
 
         onEvent(
@@ -340,7 +367,9 @@ class JudgementEngine(
                 type = type,
                 wallMs = i.wallMs,
                 speedKmh = i.speedKmh,
+                judgedValue = magnitude,
                 peakKmhPerSec = history.peakLongitudinal(windowFromNs, i.timestampNs),
+                speedAccuracyMps = i.speedAccuracyMps,
                 turnAngleDeg = turnAngle,
                 turnDirection = turnDirection,
                 thresholdValue = threshold,

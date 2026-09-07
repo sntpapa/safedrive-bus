@@ -40,8 +40,9 @@ object CsvExporter {
     private val rowStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.KOREA)
 
     private val HEADER = listOf(
-        "발생시각", "유형", "속도_kmh", "최대가감속_kmh_per_s", "회전각_deg", "회전방향",
-        "임계값", "제한속도_kmh", "위도", "경도", "GPS정확도_m",
+        "발생시각", "유형", "속도_kmh", "판정값", "임계값",
+        "IMU피크_kmh_per_s", "회전각_deg", "회전방향",
+        "제한속도_kmh", "위도", "경도", "GPS정확도_m", "속도정확도_mps",
         "게이트_보정", "게이트_GPS", "게이트_연속성", "게이트_거치",
         "경고발생", "보류사유"
     ).joinToString(",")
@@ -137,14 +138,16 @@ object CsvExporter {
                         rowStamp.format(Date(e.occurredAtMs)),
                         EventType.fromName(e.type)?.label ?: e.type,
                         "%.1f".format(e.speedKmh),
+                        "%.2f".format(e.judgedValue),
+                        "%.1f".format(e.thresholdValue),
                         "%.2f".format(e.peakKmhPerSec),
                         "%.1f".format(e.turnAngleDeg),
                         e.turnDirection,
-                        "%.1f".format(e.thresholdValue),
                         e.speedLimitKmh?.let { "%.0f".format(it) } ?: "",
                         "%.6f".format(e.latitude),
                         "%.6f".format(e.longitude),
                         "%.1f".format(e.gpsAccuracyM),
+                        e.speedAccuracyMps?.let { "%.2f".format(it) } ?: "",
                         e.gateAlignment.yn(), e.gateGps.yn(),
                         e.gateContinuity.yn(), e.gateMount.yn(),
                         e.warned.yn(),

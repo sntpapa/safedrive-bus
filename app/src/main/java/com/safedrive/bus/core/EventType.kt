@@ -32,7 +32,8 @@ enum class SuppressReason(val label: String) {
     DEBOUNCE("디바운스"),
     BORDERLINE_PITCH("경사로 보정 불가 · 경계값"),
     BORDERLINE_SHOCK("노면 충격 동반 · 경계값"),
-    ABSORBED_BY_UTURN("급U턴에 포함됨")
+    ABSORBED_BY_UTURN("급U턴에 포함됨"),
+    CONFLICTING_DIRECTION("직전과 반대 방향 · 잡음 의심")
 }
 
 /** 회전 방향. */

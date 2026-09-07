@@ -376,6 +376,7 @@ class DrivingService : LifecycleService() {
                 latitude = snap.latitude,
                 longitude = snap.longitude,
                 gpsAccuracyM = snap.gpsAccuracyM,
+                speedAccuracyMps = snap.gpsSpeedAccuracyMps,
                 speedLimitKmh = currentSpeedLimitKmh,
                 gates = gateSnapshot,
                 pitchReliable = pitchReliable,
@@ -407,7 +408,7 @@ class DrivingService : LifecycleService() {
         EventType.SHARP_TURN, EventType.SHARP_UTURN ->
             "%s %.0f°".format(e.turnDirection.label, abs(e.turnAngleDeg))
 
-        else -> "%.1f km/h/s".format(abs(e.peakKmhPerSec))
+        else -> "%.1f km/h/s".format(abs(e.judgedValue))
     }
 
     private fun onGps(sample: GpsSample) {

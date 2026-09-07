@@ -231,7 +231,7 @@ private fun magnitudeText(e: DrivingEvent): String = when (e.type) {
     EventType.OVERSPEED, EventType.LONG_OVERSPEED ->
         e.speedLimitKmh?.let { "제한 %.0f 초과".format(it) } ?: "-"
 
-    else -> "%.1f km/h/s".format(abs(e.peakKmhPerSec))
+    else -> "%.1f km/h/s".format(abs(e.judgedValue))
 }
 
 private fun relativeTime(agoMs: Long): String {

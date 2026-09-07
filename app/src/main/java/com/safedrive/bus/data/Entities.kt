@@ -37,7 +37,10 @@ data class EventEntity(
     @ColumnInfo(name = "occurred_at") val occurredAtMs: Long,
     @ColumnInfo(name = "type") val type: String,
     @ColumnInfo(name = "speed_kmh") val speedKmh: Float,
+    /** 실제로 판정에 쓴 값. 가감속은 1초 창 속도 변화량, 회전은 누적각, 과속은 초과분. */
+    @ColumnInfo(name = "judged_value", defaultValue = "0") val judgedValue: Float = 0f,
     @ColumnInfo(name = "peak_kmh_per_sec") val peakKmhPerSec: Float,
+    @ColumnInfo(name = "speed_accuracy_mps") val speedAccuracyMps: Float? = null,
     @ColumnInfo(name = "turn_angle_deg") val turnAngleDeg: Float,
     @ColumnInfo(name = "turn_direction") val turnDirection: String,
     @ColumnInfo(name = "threshold_value") val thresholdValue: Float,

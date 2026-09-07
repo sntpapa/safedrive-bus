@@ -16,8 +16,15 @@ data class DrivingEvent(
     val wallMs: Long,
     /** 발생 시점 속도 [km/h] */
     val speedKmh: Float,
-    /** 판정 창의 최대 가감속 [km/h/s]. 가속 +, 감속 -. */
+    /**
+     * 실제로 판정에 쓴 값. 가감속은 1초 창의 속도 변화량[km/h/s], 회전은 누적각[deg],
+     * 과속은 제한속도 초과분[km/h]. 이 값이 없으면 이벤트가 얼마나 셌는지 알 수 없다.
+     */
+    val judgedValue: Float,
+    /** 판정 창의 최대 IMU 가감속 [km/h/s]. 정렬 전에는 0이다. 참고용. */
     val peakKmhPerSec: Float,
+    /** 발생 시점 GPS 속도정확도 [m/s]. 저속 오탐을 가려내는 데 쓴다. */
+    val speedAccuracyMps: Float?,
     /** 회전 유형일 때 누적 회전각(도). 그 외 0. */
     val turnAngleDeg: Float,
     val turnDirection: TurnDirection,
