@@ -39,7 +39,10 @@ import com.safedrive.bus.loc.LocationSource
 import com.safedrive.bus.sensor.SensorFrame
 import com.safedrive.bus.sensor.SensorHealth
 import com.safedrive.bus.sensor.SensorSampler
+import com.safedrive.bus.speedlimit.CompositeSpeedLimitProvider
 import com.safedrive.bus.speedlimit.ManualSpeedLimitProvider
+import com.safedrive.bus.speedlimit.NodeLinkSpeedLimitProvider
+import com.safedrive.bus.speedlimit.SpeedLimitMatch
 import com.safedrive.bus.ui.MainActivity
 import com.safedrive.bus.util.AppPrefs
 import com.safedrive.bus.util.Permissions
@@ -72,7 +75,9 @@ class DrivingService : LifecycleService() {
     private lateinit var gaps: GapRecorder
     private lateinit var alerts: AlertManager
     private lateinit var repo: TripRepository
-    private lateinit var speedLimits: ManualSpeedLimitProvider
+    private lateinit var manualLimits: ManualSpeedLimitProvider
+    private lateinit var roadLimits: NodeLinkSpeedLimitProvider
+    private lateinit var speedLimits: CompositeSpeedLimitProvider
     private lateinit var judge: JudgementEngine
     private val review = ReviewTracker()
 
@@ -90,6 +95,9 @@ class DrivingService : LifecycleService() {
 
     @Volatile
     private var currentSpeedLimitKmh: Double? = null
+
+    @Volatile
+    private var currentMatch: SpeedLimitMatch? = null
 
     @Volatile
     private var alignSnapshot = AlignmentSnapshot()
@@ -125,7 +133,11 @@ class DrivingService : LifecycleService() {
         gaps = GapRecorder()
         alerts = AlertManager(this)
         repo = TripRepository(this)
-        speedLimits = ManualSpeedLimitProvider(repo.speedZoneDao)
+        // 사용자가 직접 등록한 구간이 공공데이터보다 앞선다.
+        // 데이터에 없는 임시 규제나 잘못된 값을 기사가 바로잡을 수 있어야 한다.
+        manualLimits = ManualSpeedLimitProvider(repo.speedZoneDao)
+        roadLimits = NodeLinkSpeedLimitProvider(this)
+        speedLimits = CompositeSpeedLimitProvider(listOf(manualLimits, roadLimits))
         judge = JudgementEngine(
             onEvent = ::onJudgedEvent,
             onAbsorbedByUturn = { absorbChannel.trySend(it) }
@@ -192,6 +204,7 @@ class DrivingService : LifecycleService() {
         lastWarnWallMs = 0L
         lastWarnDistanceM = 0.0
         currentSpeedLimitKmh = null
+        currentMatch = null
         gateSnapshot = GateSnapshot.INITIAL
         Telemetry.reset()
 
@@ -224,10 +237,18 @@ class DrivingService : LifecycleService() {
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
                 repo.purgeOld()
-                speedLimits.refresh()
+                manualLimits.refresh()
+                roadLimits.open()
                 tripId = repo.startTrip(startedAtWallMs)
             }
-            Telemetry.update { it.copy(tripId = tripId, speedZoneCount = speedLimits.zoneCount) }
+            Telemetry.update {
+                it.copy(
+                    tripId = tripId,
+                    speedZoneCount = manualLimits.zoneCount,
+                    roadDataReady = roadLimits.ready,
+                    roadDataSource = roadLimits.sourceName
+                )
+            }
         }
         lifecycleScope.launch { consumeAbsorbs() }
         lifecycleScope.launch { consumeEvents() }
@@ -239,6 +260,7 @@ class DrivingService : LifecycleService() {
         location?.stop(); location = null
         diagnostics?.stop(); diagnostics = null
         alerts.stop()
+        roadLimits.close()
         releaseWakeLock()
 
         val id = tripId
@@ -332,8 +354,17 @@ class DrivingService : LifecycleService() {
 
     private fun onGps(sample: GpsSample) {
         motion.onGps(sample)
-        // 구간 조회는 메모리 스냅샷 순회라 1Hz 콜백에서 해도 부담이 없다.
-        currentSpeedLimitKmh = speedLimits.limitAt(sample.latitude, sample.longitude)
+        // 도로 매칭은 격자 인덱스 조회라 1Hz 콜백에서 해도 부담이 없다.
+        val match = speedLimits.matchAt(
+            latitude = sample.latitude,
+            longitude = sample.longitude,
+            bearingDeg = sample.bearingDeg,
+            speedKmh = (motion.gpsSpeedMps ?: 0f) * 3.6f
+        )
+        currentMatch = match
+        // 어린이보호구역 근처인데 제한속도가 40 이상으로 잡힌 구간은 데이터가 실제 규제를
+        // 반영하지 못했을 수 있다. 매칭 실패와 똑같이 과속 판정을 보류한다.
+        currentSpeedLimitKmh = if (match == null || match.schoolSuspect) null else match.limitKmh
     }
 
     // ------------------------------------------------------------------
@@ -396,7 +427,10 @@ class DrivingService : LifecycleService() {
                     alert = alerts.state,
                     ttsAvailable = alerts.speechAvailable,
                     speedLimitKmh = currentSpeedLimitKmh,
-                    speedZoneCount = speedLimits.zoneCount,
+                    speedLimitMatch = currentMatch,
+                    roadDataReady = roadLimits.ready,
+                    roadDataSource = roadLimits.sourceName,
+                    speedZoneCount = manualLimits.zoneCount,
                     judge = judge.stats(),
                     eventCounts = HashMap(eventCounts),
                     warnedCounts = HashMap(warnedCounts),

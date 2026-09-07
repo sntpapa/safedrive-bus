@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 적응형 아이콘 배경. 런처가 모양을 마스킹하므로 단색으로 둔다. -->
+    <color name="ic_launcher_background">#1A76C8</color>
+</resources>

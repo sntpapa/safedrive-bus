@@ -216,12 +216,36 @@ private fun SpeedLimitCard(state: TelemetrySnapshot) {
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SectionTitle("제한속도")
+            val m = state.speedLimitMatch
             KeyValue(
                 "현재 구간",
-                state.speedLimitKmh?.let { "%.0f km/h".format(it) } ?: "매칭 실패 · 과속 판정 보류",
+                state.speedLimitKmh?.let { "%.0f km/h".format(it) } ?: "판정 보류",
                 valueColor = if (state.speedLimitKmh == null) WarnAmber else null
             )
-            KeyValue("등록 구간", "%d개".format(state.speedZoneCount))
+            KeyValue(
+                "매칭 도로",
+                m?.let { "%s · %.0fm".format(it.roadName ?: "이름 없음", it.distanceM) }
+                    ?: "매칭된 도로 없음",
+                valueColor = if (m == null) WarnAmber else null
+            )
+            KeyValue(
+                "출처",
+                m?.source ?: "-",
+                valueColor = if (m?.fromCamera == true) PassGreen else null
+            )
+            if (m?.schoolSuspect == true) {
+                KeyValue(
+                    "보호구역 의심",
+                    "학교 인접 · 판정 보류",
+                    valueColor = WarnAmber
+                )
+            }
+            KeyValue(
+                "도로 데이터",
+                if (state.roadDataReady) state.roadDataSource else "없음",
+                valueColor = if (state.roadDataReady) null else BlockRed
+            )
+            KeyValue("직접 등록 구간", "%d개".format(state.speedZoneCount))
             KeyValue(
                 "과속 상태",
                 if (state.judge.overspeedActive) {

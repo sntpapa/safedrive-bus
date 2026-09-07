@@ -22,6 +22,8 @@ data class GpsSample(
     val speedMps: Float?,
     /** 속도 정확도 [m/s]. API 26+ 에서만 제공. */
     val speedAccuracyMps: Float?,
+    /** 진행 방위 [deg, 0=북]. 도로 링크 방위와 비교해 반대 차선을 걸러낸다. 없으면 null. */
+    val bearingDeg: Float?,
     /** elapsedRealtime 기준 수신 시각 [ms] */
     val elapsedMs: Long,
     val wallMs: Long
@@ -88,6 +90,7 @@ class LocationSource(
             speedMps = if (hasSpeed()) speed else null,
             // minSdk 26 이므로 hasSpeedAccuracy()는 항상 사용할 수 있다.
             speedAccuracyMps = if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond else null,
+            bearingDeg = if (hasBearing()) bearing else null,
             elapsedMs = elapsed,
             wallMs = System.currentTimeMillis()
         )

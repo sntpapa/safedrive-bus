@@ -124,6 +124,8 @@ fun SettingsScreen(
 
         SpeedZoneSection(
             zones = zones,
+            roadDataReady = state.roadDataReady,
+            roadDataSource = state.roadDataSource,
             currentLatitude = state.motion.latitude,
             currentLongitude = state.motion.longitude,
             hasFix = state.motion.latitude != 0.0 || state.motion.longitude != 0.0,
@@ -166,6 +168,8 @@ private fun ToggleRow(
 @Composable
 private fun SpeedZoneSection(
     zones: List<SpeedZoneEntity>,
+    roadDataReady: Boolean,
+    roadDataSource: String,
     currentLatitude: Double,
     currentLongitude: Double,
     hasFix: Boolean,
@@ -181,11 +185,21 @@ private fun SpeedZoneSection(
 
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SectionTitle("구간 제한속도 · 등록 %d개".format(zones.size))
+            SectionTitle("구간 제한속도 · 직접 등록 %d개".format(zones.size))
             Text(
-                "등록되지 않은 구간에서는 과속을 판정하지 않고 보류합니다. 추정으로 경고하지 않습니다.",
+                if (roadDataReady) {
+                    "제한속도는 표준노드링크와 무인교통단속카메라 데이터로 자동 적용됩니다. " +
+                        "여기 등록한 구간은 그보다 우선합니다. 데이터가 틀린 곳만 보완하세요."
+                } else {
+                    "도로 데이터를 불러오지 못했습니다. 여기 등록한 구간에서만 과속을 판정합니다."
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (roadDataReady) MaterialTheme.colorScheme.onSurfaceVariant else BlockRed
+            )
+            KeyValue(
+                "도로 데이터",
+                if (roadDataReady) roadDataSource else "없음",
+                valueColor = if (roadDataReady) PassGreen else BlockRed
             )
             KeyValue(
                 "현재 좌표",

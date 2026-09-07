@@ -9,6 +9,7 @@ import com.safedrive.bus.gate.GateSnapshot
 import com.safedrive.bus.judge.JudgeStats
 import com.safedrive.bus.judge.ReviewState
 import com.safedrive.bus.sensor.SensorHealth
+import com.safedrive.bus.speedlimit.SpeedLimitMatch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,8 +32,13 @@ data class TelemetrySnapshot(
     val alert: AlertState = AlertState(),
     /** TTS 사용 가능 여부. 불가하면 진동만 나간다. */
     val ttsAvailable: Boolean = false,
-    /** 현재 위치에 매칭된 구간 제한속도. null이면 과속 판정 보류. */
+    /** 과속 판정에 실제로 쓰는 제한속도. null이면 판정 보류. */
     val speedLimitKmh: Double? = null,
+    /** 매칭된 도로 정보. 진단 화면 표시용. */
+    val speedLimitMatch: SpeedLimitMatch? = null,
+    /** 도로 데이터(표준노드링크) 사용 가능 여부 */
+    val roadDataReady: Boolean = false,
+    val roadDataSource: String = "",
     val speedZoneCount: Int = 0,
     val judge: JudgeStats = JudgeStats(),
     /** 이번 운행의 유형별 누적 건수 (경고 발생 + 보류 모두 포함) */
