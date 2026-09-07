@@ -409,6 +409,12 @@ private fun GapCard(state: TelemetrySnapshot) {
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SectionTitle("감지 중단 기록")
+            KeyValue(
+                "서비스 재시작",
+                if (state.sessionRestartCount == 0) "없음"
+                else "%d회 · 직전 운행 이어받음".format(state.sessionRestartCount),
+                valueColor = if (state.sessionRestartCount == 0) PassGreen else BlockRed
+            )
             Text(
                 "총 운행 %s 중 %s 감지 중단".format(
                     formatDuration(g.sessionDurationMs),
@@ -433,6 +439,14 @@ private fun GapCard(state: TelemetrySnapshot) {
                 },
                 valueColor = if (g.inGap) BlockRed else if (g.graceActive) WarnAmber else PassGreen
             )
+            if (state.sessionRestartCount > 0) {
+                Text(
+                    "제조사 절전 정책이 수집 서비스를 종료시키고 있습니다. " +
+                        "설정에서 배터리 최적화 제외를 다시 확인하세요.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = BlockRed
+                )
+            }
             if (g.records.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 g.records.takeLast(5).reversed().forEach { r ->

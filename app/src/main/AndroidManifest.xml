@@ -15,6 +15,11 @@
     <!-- API 33+: FGS 알림 표시 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- CSV를 다운로드 폴더에 저장하기 위한 권한.
+         안드로이드 10부터는 MediaStore로 권한 없이 쓸 수 있어 28 이하에서만 필요하다. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <!-- 경고 진동. TTS와 함께 경고의 주 전달 수단이므로 반드시 필요하다. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 

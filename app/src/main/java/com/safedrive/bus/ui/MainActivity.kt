@@ -47,7 +47,7 @@ import com.safedrive.bus.util.Permissions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
+import android.net.Uri
 
 private enum class Tab(val label: String) {
     DRIVE("주행"),
@@ -175,7 +175,7 @@ class MainActivity : ComponentActivity() {
             ?.let { TripSummary(it, counts) }
 
         var exportMessage by remember { mutableStateOf("") }
-        var exportedFile by remember { mutableStateOf<File?>(null) }
+        var exportedUri by remember { mutableStateOf<Uri?>(null) }
 
         // 시스템 글꼴 배율 위에 앱 배율을 곱한다. 기기 설정을 무시하지 않으면서
         // 줄바꿈이 생기는 기기에서 사용자가 직접 줄일 수 있게 한다.
@@ -204,25 +204,27 @@ class MainActivity : ComponentActivity() {
                             selectedTripId = effectiveTripId,
                             selectedSummary = summary,
                             exportMessage = exportMessage,
-                            canShare = exportedFile != null,
+                            canShare = exportedUri != null,
                             onSelectTrip = { selectedTripId = it },
                             onExportCsv = {
                                 scope.launch {
-                                    val f = withContext(Dispatchers.IO) {
+                                    val r = withContext(Dispatchers.IO) {
                                         CsvExporter.exportRecent(applicationContext, repo)
                                     }
-                                    exportedFile = f
-                                    exportMessage = if (f == null) {
-                                        "내보내기에 실패했습니다."
-                                    } else {
-                                        "저장됨: ${f.absolutePath}"
+                                    exportedUri = r?.uri
+                                    exportMessage = when {
+                                        r == null -> "내보내기에 실패했습니다."
+                                        r.fallbackReason != null ->
+                                            r.fallbackReason + " · " + r.displayPath
+                                        else -> "저장됨: ${r.displayPath}"
                                     }
                                 }
                             },
                             onShare = {
-                                exportedFile?.let { f ->
-                                    val intent = CsvExporter.shareIntent(applicationContext, f)
-                                    startActivity(Intent.createChooser(intent, "CSV 공유"))
+                                exportedUri?.let { u ->
+                                    startActivity(
+                                        Intent.createChooser(CsvExporter.shareIntent(u), "CSV 공유")
+                                    )
                                 }
                             }
                         )

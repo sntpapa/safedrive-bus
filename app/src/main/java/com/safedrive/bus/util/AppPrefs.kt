@@ -57,8 +57,62 @@ class AppPrefs(context: Context) {
         get() = sp.getFloat(KEY_TEXT_SCALE, 1.0f)
         set(v) = sp.edit().putFloat(KEY_TEXT_SCALE, v).apply()
 
+    // ------------------------------------------------------------------
+    // 세션 이어받기
+    //
+    // 제조사 절전 정책이 서비스를 종료시키면 START_STICKY로 되살아나는데,
+    // 그때 운행 시작 시각과 누적 거리가 0으로 돌아가면 "경고 없이 N분"이
+    // 실제 운행 시간보다 짧게 나온다. 최근 상태를 남겨 두었다가 이어받는다.
+    // ------------------------------------------------------------------
+
+    var sessionTripId: Long
+        get() = sp.getLong(KEY_S_TRIP, 0L)
+        set(v) = sp.edit().putLong(KEY_S_TRIP, v).apply()
+
+    var sessionStartedAt: Long
+        get() = sp.getLong(KEY_S_START, 0L)
+        set(v) = sp.edit().putLong(KEY_S_START, v).apply()
+
+    var sessionDistanceM: Float
+        get() = sp.getFloat(KEY_S_DIST, 0f)
+        set(v) = sp.edit().putFloat(KEY_S_DIST, v).apply()
+
+    var sessionLastWarnAt: Long
+        get() = sp.getLong(KEY_S_WARN_AT, 0L)
+        set(v) = sp.edit().putLong(KEY_S_WARN_AT, v).apply()
+
+    var sessionLastWarnDistanceM: Float
+        get() = sp.getFloat(KEY_S_WARN_DIST, 0f)
+        set(v) = sp.edit().putFloat(KEY_S_WARN_DIST, v).apply()
+
+    /** 마지막 생존 신호. 이 값이 최근이면 서비스가 비정상 종료된 것으로 본다. */
+    var sessionHeartbeat: Long
+        get() = sp.getLong(KEY_S_BEAT, 0L)
+        set(v) = sp.edit().putLong(KEY_S_BEAT, v).apply()
+
+    /** 이번 운행에서 서비스가 되살아난 횟수. */
+    var sessionRestartCount: Int
+        get() = sp.getInt(KEY_S_RESTART, 0)
+        set(v) = sp.edit().putInt(KEY_S_RESTART, v).apply()
+
+    /** 정상 종료 시 호출. 다음 시작은 새 운행이 된다. */
+    fun clearSession() {
+        sp.edit()
+            .remove(KEY_S_TRIP).remove(KEY_S_START).remove(KEY_S_DIST)
+            .remove(KEY_S_WARN_AT).remove(KEY_S_WARN_DIST)
+            .remove(KEY_S_BEAT).remove(KEY_S_RESTART)
+            .apply()
+    }
+
     private companion object {
         const val KEY_ONBOARDING = "onboarding_done"
+        const val KEY_S_TRIP = "session_trip_id"
+        const val KEY_S_START = "session_started_at"
+        const val KEY_S_DIST = "session_distance_m"
+        const val KEY_S_WARN_AT = "session_last_warn_at"
+        const val KEY_S_WARN_DIST = "session_last_warn_distance_m"
+        const val KEY_S_BEAT = "session_heartbeat"
+        const val KEY_S_RESTART = "session_restart_count"
         const val KEY_TEXT_SCALE = "text_scale"
         const val KEY_AUTO_START = "auto_start"
         const val KEY_DIAG = "diagnostic_recording"

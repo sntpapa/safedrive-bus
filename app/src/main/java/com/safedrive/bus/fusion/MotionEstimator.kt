@@ -104,6 +104,11 @@ class MotionEstimator {
         speedSuppressed = false
     }
 
+    /** 서비스가 되살아난 경우 직전까지의 누적 거리를 이어받는다. */
+    fun seedDistance(meters: Double) {
+        distanceM = meters
+    }
+
     fun onGps(sample: GpsSample) {
         prevGps = lastGps
         lastGps = sample

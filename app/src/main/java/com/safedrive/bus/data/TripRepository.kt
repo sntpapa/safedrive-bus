@@ -111,6 +111,10 @@ class TripRepository(context: Context) {
 
     suspend fun latestTrip(): TripEntity? = tripDao.latest()
 
+    /** 아직 마감되지 않은 운행인지. 서비스 재시작 시 이어받을 대상을 고른다. */
+    suspend fun isTripOpen(tripId: Long): Boolean =
+        tripDao.byId(tripId)?.endedAtMs == null
+
     suspend fun eventsSince(sinceMs: Long): List<EventEntity> = eventDao.since(sinceMs)
 
     /** 보관 기간이 지난 기록을 지운다. 서비스 시작 때마다 호출한다. */

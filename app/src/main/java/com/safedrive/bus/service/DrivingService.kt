@@ -125,6 +125,12 @@ class DrivingService : LifecycleService() {
     @Volatile
     private var lastWarnDistanceM = 0.0
 
+    /** 서비스가 되살아나 직전 운행을 이어받았는지. 진단 화면에 표시한다. */
+    @Volatile
+    private var sessionRestartCount = 0
+
+    private var lastHeartbeatMs = 0L
+
     override fun onCreate() {
         super.onCreate()
         prefs = AppPrefs(this)
@@ -203,6 +209,7 @@ class DrivingService : LifecycleService() {
         warnedCounts.clear()
         lastWarnWallMs = 0L
         lastWarnDistanceM = 0.0
+        lastHeartbeatMs = 0L
         currentSpeedLimitKmh = null
         currentMatch = null
         gateSnapshot = GateSnapshot.INITIAL
@@ -239,7 +246,7 @@ class DrivingService : LifecycleService() {
                 repo.purgeOld()
                 manualLimits.refresh()
                 roadLimits.open()
-                tripId = repo.startTrip(startedAtWallMs)
+                resumeOrStartTrip()
             }
             Telemetry.update {
                 it.copy(
@@ -253,6 +260,42 @@ class DrivingService : LifecycleService() {
         lifecycleScope.launch { consumeAbsorbs() }
         lifecycleScope.launch { consumeEvents() }
         lifecycleScope.launch { publishLoop() }
+    }
+
+    /**
+     * 직전 운행을 이어받거나 새로 시작한다.
+     *
+     * 제조사 절전 정책이 서비스를 죽이면 START_STICKY로 되살아나는데, 그때마다
+     * 새 운행으로 시작하면 "경고 없이 N분"이 실제 운행 시간보다 짧게 나오고
+     * 이력도 잘게 쪼개진다. 최근 생존 신호가 남아 있으면 같은 운행으로 잇는다.
+     */
+    private suspend fun resumeOrStartTrip() {
+        val now = System.currentTimeMillis()
+        val beat = prefs.sessionHeartbeat
+        val prevTrip = prefs.sessionTripId
+        val resumable = beat != 0L && prevTrip != 0L &&
+            now - beat in 0..Constants.SESSION_RESUME_WINDOW_MS &&
+            repo.isTripOpen(prevTrip)
+
+        if (resumable) {
+            tripId = prevTrip
+            startedAtWallMs = prefs.sessionStartedAt.takeIf { it != 0L } ?: startedAtWallMs
+            lastWarnWallMs = prefs.sessionLastWarnAt
+            lastWarnDistanceM = prefs.sessionLastWarnDistanceM.toDouble()
+            motion.seedDistance(prefs.sessionDistanceM.toDouble())
+            sessionRestartCount = prefs.sessionRestartCount + 1
+            prefs.sessionRestartCount = sessionRestartCount
+        } else {
+            tripId = repo.startTrip(startedAtWallMs)
+            sessionRestartCount = 0
+            prefs.sessionTripId = tripId
+            prefs.sessionStartedAt = startedAtWallMs
+            prefs.sessionDistanceM = 0f
+            prefs.sessionLastWarnAt = 0L
+            prefs.sessionLastWarnDistanceM = 0f
+            prefs.sessionRestartCount = 0
+        }
+        prefs.sessionHeartbeat = now
     }
 
     private fun stopCollection() {
@@ -281,7 +324,10 @@ class DrivingService : LifecycleService() {
                 )
             }
         }
+        // 사용자가 직접 멈춘 것이므로 다음 시작은 새 운행이다.
+        prefs.clearSession()
         tripId = 0L
+        sessionRestartCount = 0
     }
 
     // ------------------------------------------------------------------
@@ -385,6 +431,8 @@ class DrivingService : LifecycleService() {
                 warnedCounts[e.type] = (warnedCounts[e.type] ?: 0) + 1
                 lastWarnWallMs = e.wallMs
                 lastWarnDistanceM = motionSnapshot.distanceM
+                prefs.sessionLastWarnAt = lastWarnWallMs
+                prefs.sessionLastWarnDistanceM = lastWarnDistanceM.toFloat()
             }
             review.add(e)
             val id = tripId
@@ -437,8 +485,16 @@ class DrivingService : LifecycleService() {
                     review = review.state(),
                     noWarnDurationMs = System.currentTimeMillis() -
                         (if (lastWarnWallMs != 0L) lastWarnWallMs else startedAtWallMs),
-                    noWarnDistanceM = (mot.distanceM - lastWarnDistanceM).coerceAtLeast(0.0)
+                    noWarnDistanceM = (mot.distanceM - lastWarnDistanceM).coerceAtLeast(0.0),
+                    sessionRestartCount = sessionRestartCount
                 )
+            }
+
+            val nowWall = System.currentTimeMillis()
+            if (nowWall - lastHeartbeatMs > Constants.SESSION_HEARTBEAT_INTERVAL_MS) {
+                lastHeartbeatMs = nowWall
+                prefs.sessionHeartbeat = nowWall
+                prefs.sessionDistanceM = mot.distanceM.toFloat()
             }
 
             val now = SystemClock.elapsedRealtime()

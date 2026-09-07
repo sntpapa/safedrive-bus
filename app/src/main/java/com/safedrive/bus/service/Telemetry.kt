@@ -50,7 +50,12 @@ data class TelemetrySnapshot(
     /** 마지막 경고 이후 경과 시간 [ms]. 경고가 없었으면 운행 시작부터. */
     val noWarnDurationMs: Long = 0L,
     /** 마지막 경고 이후 주행한 거리 [m]. */
-    val noWarnDistanceM: Double = 0.0
+    val noWarnDistanceM: Double = 0.0,
+    /**
+     * 이번 운행에서 수집 서비스가 되살아난 횟수.
+     * 0이 아니면 제조사 절전 정책이 서비스를 종료시키고 있다는 뜻이다.
+     */
+    val sessionRestartCount: Int = 0
 ) {
     val totalEvents: Int get() = eventCounts.values.sum()
     val totalWarned: Int get() = warnedCounts.values.sum()
