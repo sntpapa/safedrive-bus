@@ -351,25 +351,26 @@ class DrivingService : LifecycleService() {
         val snap = motion.snapshot()
 
         // 판정은 게이트와 무관하게 항상 돌린다. 게이트는 경고를 낼지 여부만 결정한다.
-        // 다만 차량 좌표계가 없으면 종/횡/요 성분 자체가 정의되지 않으므로 그때는 건너뛴다.
-        if (vehicleMotion != null) {
-            judge.process(
-                JudgeInput(
-                    timestampNs = frame.timestampNs,
-                    wallMs = System.currentTimeMillis(),
-                    speedKmh = snap.fusedSpeedKmh,
-                    longKmhPerSec = snap.longitudinalKmhPerSec,
-                    verticalMps2 = vehicleMotion.vertical,
-                    yawRateDps = snap.yawRateDps,
-                    latitude = snap.latitude,
-                    longitude = snap.longitude,
-                    gpsAccuracyM = snap.gpsAccuracyM,
-                    speedLimitKmh = currentSpeedLimitKmh,
-                    gates = gateSnapshot,
-                    pitchReliable = pitchReliable
-                )
+        // 좌표계 정렬이 끝나지 않아도 가감속·과속은 GPS 속도만으로 판정할 수 있다.
+        // 정렬을 기다리게 하면 보정이 막힌 동안 이벤트가 한 건도 남지 않아
+        // 무엇이 잘못됐는지조차 알 수 없게 된다.
+        judge.process(
+            JudgeInput(
+                timestampNs = frame.timestampNs,
+                wallMs = System.currentTimeMillis(),
+                speedKmh = snap.fusedSpeedKmh,
+                longKmhPerSec = snap.longitudinalKmhPerSec,
+                verticalMps2 = vehicleMotion?.vertical ?: 0f,
+                yawRateDps = snap.yawRateDps,
+                latitude = snap.latitude,
+                longitude = snap.longitude,
+                gpsAccuracyM = snap.gpsAccuracyM,
+                speedLimitKmh = currentSpeedLimitKmh,
+                gates = gateSnapshot,
+                pitchReliable = pitchReliable,
+                vehicleFrameReady = vehicleMotion != null
             )
-        }
+        )
 
         // UI 표시 주기에 맞춰 스냅샷을 게시한다. 매 프레임 게시는 낭비다.
         if (lastPublishNs == 0L ||

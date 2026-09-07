@@ -27,7 +27,14 @@ data class JudgeInput(
     val speedLimitKmh: Double?,
     val gates: GateSnapshot,
     /** 회전벡터 기반 중력 제거를 쓰고 있는지. false면 경사로 보정 신뢰 불가. */
-    val pitchReliable: Boolean
+    val pitchReliable: Boolean,
+    /**
+     * 차량 좌표계 정렬이 끝났는지.
+     *
+     * 회전 판정은 요레이트가 필요하므로 정렬이 있어야 한다.
+     * 반면 가감속·과속 판정은 1초 창의 GPS 속도 변화량으로 하므로 정렬과 무관하다.
+     */
+    val vehicleFrameReady: Boolean
 )
 
 /** 판정기가 밖으로 알리는 부수 정보. */
@@ -108,9 +115,11 @@ class JudgementEngine(
             verticalMps2 = i.verticalMps2,
             yawRateDps = i.yawRateDps
         )
+        // 가감속과 과속은 GPS 속도만으로 판정하므로 좌표계 정렬을 기다리지 않는다.
         judgeLongitudinal(i)
-        judgeTurn(i)
         judgeSpeedLimit(i)
+        // 회전은 요레이트가 필요하다. 정렬이 끝나야 차량 기준 회전각을 알 수 있다.
+        if (i.vehicleFrameReady) judgeTurn(i)
     }
 
     // ------------------------------------------------------------------
