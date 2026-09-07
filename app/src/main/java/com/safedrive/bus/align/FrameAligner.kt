@@ -5,6 +5,7 @@ import com.safedrive.bus.core.Constants
 import com.safedrive.bus.core.Vec3
 import com.safedrive.bus.core.angleBetweenDeg
 import com.safedrive.bus.filter.LowPass1P
+import com.safedrive.bus.filter.LowPass1PVec3
 import com.safedrive.bus.sensor.SensorFrame
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -104,6 +105,18 @@ class FrameAligner {
     private var basisE1: Vec3? = null
     private var basisE2: Vec3? = null
 
+    /**
+     * 전방 축 추정용 선형가속도 저역통과.
+     *
+     * 원시 가속도를 그대로 쓰면 노면 진동(±2~3 m/s^2)이 실제 종방향 가속(0.8~2 m/s^2)보다
+     * 커서 수평 방향이 흩어진다. 실측에서 고유값비가 1.5 수준(무작위에 가까움)에 머물렀다.
+     * 판정용과 같은 2Hz로 잘라 방향 성분만 남긴다.
+     */
+    private val forwardLpf = LowPass1PVec3(Constants.ACCEL_LPF_CUTOFF_HZ)
+
+    /** 회전 판별용 요레이트도 원시값 대신 필터를 거친다. 진동이 그대로 들어오면 샘플이 버려진다. */
+    private val yawLpf = LowPass1P(Constants.GYRO_LPF_CUTOFF_HZ)
+
     // --- 전방 축 추정 누적 (단위벡터 기반, O(1) 메모리) ---
     private var sxx = 0.0
     private var sxy = 0.0
@@ -146,6 +159,8 @@ class FrameAligner {
         vehicleUp = null; vehicleForward = null; vehicleLeft = null
         basisE1 = null; basisE2 = null
         prevGravityUnit = null
+        forwardLpf.reset()
+        yawLpf.reset()
         mountRateLpf.reset()
         rateExceedSinceMs = 0L
         deviationExceedSinceMs = 0L
@@ -328,14 +343,20 @@ class FrameAligner {
         val e1 = basisE1 ?: return
         val e2 = basisE2 ?: return
 
+        // 필터는 채집 여부와 무관하게 계속 돌려야 상태가 이어진다.
+        val dt = if (frame.dtSec > 0.0 && frame.dtSec < 1.0) frame.dtSec else 0.02
+        val smoothed = forwardLpf.update(frame.linearAccel, dt)
+        val yawRateDps = yawLpf.update(
+            Math.toDegrees((frame.gyro dot up).toDouble()), dt
+        ).toFloat()
+
         if (frame.degraded || !gpsFresh || gpsAccelMps2 == null) return
 
         // 직진 가감속 구간만 채집한다.
         if (abs(gpsAccelMps2) < Constants.FWD_MIN_GPS_ACCEL_MPS2) return
-        val yawRateDps = Math.toDegrees((frame.gyro dot up).toDouble()).toFloat()
         if (abs(yawRateDps) > Constants.FWD_MAX_YAW_RATE_DPS) return
 
-        val horiz = frame.linearAccel.rejectFrom(up)
+        val horiz = smoothed.rejectFrom(up)
         if (horiz.norm < Constants.FWD_MIN_HORIZ_ACCEL_MPS2) return
 
         // 감속 구간의 벡터는 뒤를 향하므로 GPS 속도 증감 부호로 뒤집어 정렬한다.

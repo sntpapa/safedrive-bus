@@ -63,12 +63,14 @@ class NodeLinkSpeedLimitProvider(private val context: Context) : SpeedLimitProvi
         return try {
             val target = File(context.filesDir, DB_NAME)
             val stamp = File(context.filesDir, "$DB_NAME.version")
-            val assetSize = context.assets.openFd(DB_NAME).use { it.length }
-            if (!target.exists() || stamp.readTextOrNull() != assetSize.toString()) {
+            // assets.openFd()는 압축되지 않은 파일에만 동작한다. .db는 APK에서 압축되므로
+            // 크기로 버전을 비교하려던 방식이 항상 예외를 냈고, 도로 데이터가 통째로
+            // 로드되지 않았다. 버전 문자열로 비교한다.
+            if (!target.exists() || stamp.readTextOrNull() != DB_VERSION) {
                 context.assets.open(DB_NAME).use { input ->
                     target.outputStream().use { input.copyTo(it) }
                 }
-                stamp.writeText(assetSize.toString())
+                stamp.writeText(DB_VERSION)
                 Log.i(TAG, "도로 데이터 복사 완료 ${target.length()} bytes")
             }
             val d = SQLiteDatabase.openDatabase(
@@ -243,6 +245,9 @@ class NodeLinkSpeedLimitProvider(private val context: Context) : SpeedLimitProvi
     private companion object {
         const val TAG = "NodeLinkSpeedLimit"
         const val DB_NAME = "speedlimit.db"
+
+        /** 데이터를 다시 뽑으면 이 값을 바꾼다. 기기의 사본이 교체된다. */
+        const val DB_VERSION = "daejeon-nodelink-2026-08-12"
 
         /** 직전 링크에 주는 거리 보정 [m]. 경로 연속성을 반영하되 뒤집기 쉬운 정도로만 준다. */
         const val CONTINUITY_BONUS_M = 4.0

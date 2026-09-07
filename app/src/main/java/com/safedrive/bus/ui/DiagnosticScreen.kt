@@ -388,6 +388,15 @@ private fun SensorCard(state: TelemetrySnapshot) {
                 if (state.ttsAvailable) "사용 가능" else "불가 · 진동만",
                 valueColor = if (state.ttsAvailable) PassGreen else WarnAmber
             )
+            if (h.accelInfo?.isWakeUp == false || h.gyroInfo?.isWakeUp == false) {
+                Text(
+                    "이 기기에는 wake-up 센서가 없습니다. 화면을 끄면 데이터가 유실될 수 " +
+                        "있으니 설정에서 ‘화면 꺼짐 시 수집 강제 유지’를 켜고 감지 중단 " +
+                        "시간을 확인하세요.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = WarnAmber
+                )
+            }
         }
     }
 }

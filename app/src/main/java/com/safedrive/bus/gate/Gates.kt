@@ -72,6 +72,33 @@ data class GateSnapshot(
 
 object GateEvaluator {
 
+    /**
+     * 전방 축 수집의 병목을 이름으로 알려 준다.
+     *
+     * 진행률 숫자만 보여 주면 무엇이 막고 있는지 알 수 없어 원인을 역산해야 한다.
+     * 네 조건 중 가장 뒤처진 것을 그대로 표시한다.
+     */
+    private fun forwardDetail(a: AlignmentSnapshot): String {
+        val sampleP = a.forwardSamples.toFloat() / Constants.FWD_MIN_SAMPLES
+        val segmentP = a.forwardSegments.toFloat() / Constants.FWD_MIN_SEGMENTS
+        val qualityP = if (a.eigenRatio <= 0.0) 0f
+        else (a.eigenRatio / Constants.FWD_MIN_EIGEN_RATIO).toFloat()
+        return when {
+            qualityP <= sampleP && qualityP <= segmentP ->
+                "보정 중 · 방향 집중도 %.1f/%.1f".format(
+                    a.eigenRatio, Constants.FWD_MIN_EIGEN_RATIO
+                )
+            segmentP <= sampleP ->
+                "보정 중 · 가감속 구간 %d/%d".format(
+                    a.forwardSegments, Constants.FWD_MIN_SEGMENTS
+                )
+            else ->
+                "보정 중 · 전방축 %d/%d 샘플".format(
+                    a.forwardSamples, Constants.FWD_MIN_SAMPLES
+                )
+        }
+    }
+
     fun evaluate(
         alignment: AlignmentSnapshot,
         motion: MotionSnapshot,
@@ -91,10 +118,7 @@ object GateEvaluator {
                 com.safedrive.bus.align.AlignmentState.CAPTURING_GRAVITY ->
                     "보정 중 · 중력 %.0f%%".format(alignment.gravityProgress * 100)
                 com.safedrive.bus.align.AlignmentState.COLLECTING_FORWARD ->
-                    "보정 중 · 전방축 %d/%d 샘플, %d/%d 구간".format(
-                        alignment.forwardSamples, Constants.FWD_MIN_SAMPLES,
-                        alignment.forwardSegments, Constants.FWD_MIN_SEGMENTS
-                    )
+                    forwardDetail(alignment)
             }
         )
 
