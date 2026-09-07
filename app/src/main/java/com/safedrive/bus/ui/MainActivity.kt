@@ -26,8 +26,11 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -144,6 +147,7 @@ class MainActivity : ComponentActivity() {
 
         var tab by remember { mutableStateOf(Tab.DRIVE) }
         var autoStart by remember { mutableStateOf(prefs.autoStart) }
+        var textScale by remember { mutableStateOf(prefs.textScale) }
         var diagnostic by remember { mutableStateOf(prefs.diagnosticRecording) }
         var keepAwake by remember { mutableStateOf(prefs.keepAwake) }
         var reviewOpen by remember { mutableStateOf(false) }
@@ -173,6 +177,12 @@ class MainActivity : ComponentActivity() {
         var exportMessage by remember { mutableStateOf("") }
         var exportedFile by remember { mutableStateOf<File?>(null) }
 
+        // 시스템 글꼴 배율 위에 앱 배율을 곱한다. 기기 설정을 무시하지 않으면서
+        // 줄바꿈이 생기는 기기에서 사용자가 직접 줄일 수 있게 한다.
+        val base = LocalDensity.current
+        CompositionLocalProvider(
+            LocalDensity provides Density(base.density, base.fontScale * textScale)
+        ) {
         Box(Modifier.fillMaxSize()) {
             Column(
                 Modifier
@@ -235,6 +245,11 @@ class MainActivity : ComponentActivity() {
                                 prefs.keepAwake = it
                                 keepAwake = it
                             },
+                            textScale = textScale,
+                            onTextScaleChange = {
+                                prefs.textScale = it
+                                textScale = it
+                            },
                             onStartService = {
                                 if (!Permissions.hasFineLocation(this@MainActivity)) {
                                     foregroundPermissionLauncher
@@ -282,6 +297,7 @@ class MainActivity : ComponentActivity() {
             if (state.alert.isActive()) {
                 AlertOverlay(state.alert)
             }
+        }
         }
     }
 }

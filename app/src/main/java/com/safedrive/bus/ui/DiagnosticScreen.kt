@@ -72,6 +72,7 @@ fun DiagnosticScreen(state: TelemetrySnapshot) {
             modifier = Modifier.alpha(if (state.serviceRunning) 1f else 0.45f),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            StationaryCard(state)
             AlignmentCard(state)
             GateCard(state)
             MotionCard(state)
@@ -84,6 +85,69 @@ fun DiagnosticScreen(state: TelemetrySnapshot) {
 }
 
 // ----------------------------------------------------------------------
+
+/**
+ * 정차 판정 진단.
+ *
+ * 좌표계 보정의 첫 단계는 "정차 3초"인데, 이 조건 중 하나라도 계속 어긋나면
+ * 아무리 오래 운행해도 진행률이 0%에서 움직이지 않는다.
+ * 무엇이 막고 있는지 추측하지 않도록 조건별 실측값을 그대로 보여 준다.
+ */
+@Composable
+private fun StationaryCard(state: TelemetrySnapshot) {
+    val a = state.alignment
+    val blocked = a.stationaryBlockedBy
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("정차 판정", Modifier.weight(1f))
+                Text(
+                    if (blocked.isEmpty()) "조건 충족" else "막힘",
+                    color = if (blocked.isEmpty()) PassGreen else BlockRed,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            KeyValue(
+                "막는 조건",
+                blocked.ifEmpty { "없음" },
+                valueColor = if (blocked.isEmpty()) PassGreen else BlockRed
+            )
+            KeyValue(
+                "가속도 크기",
+                "%.3f m/s² (기준 %.2f ± %.2f)".format(
+                    a.accelMagnitude,
+                    Constants.STANDARD_GRAVITY,
+                    Constants.STATIONARY_ACCEL_TOLERANCE
+                ),
+                valueColor = if (kotlin.math.abs(
+                        a.accelMagnitude - Constants.STANDARD_GRAVITY
+                    ) < Constants.STATIONARY_ACCEL_TOLERANCE
+                ) PassGreen else BlockRed
+            )
+            KeyValue(
+                "누적 진동(표준편차)",
+                "%.3f (기준 %.2f 이하)".format(a.gravityStdDev, Constants.STATIONARY_ACCEL_STD_MAX),
+                valueColor = if (a.gravityStdDev <= Constants.STATIONARY_ACCEL_STD_MAX) {
+                    null
+                } else {
+                    BlockRed
+                }
+            )
+            KeyValue("중력 누적 샘플", "%d개".format(a.gravitySamples))
+            KeyValue(
+                "정차 속도 기준",
+                "%.1f km/h 미만".format(Constants.STATIONARY_SPEED_MPS * 3.6f)
+            )
+            Text(
+                "이 카드가 계속 ‘막힘’이면 보정이 시작되지 않습니다. 막는 조건의 실측값을 보고 " +
+                    "Constants.kt의 해당 임계값만 조정하면 됩니다.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 @Composable
 private fun AlignmentCard(state: TelemetrySnapshot) {

@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.safedrive.bus.core.EventType
@@ -149,15 +150,18 @@ private fun SpeedCard(state: TelemetrySnapshot, onClick: () -> Unit) {
                 Text(
                     " km/h",
                     style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
                 Spacer(Modifier.weight(1f))
                 StatusPill(state)
             }
             Text(
-                "이 영역을 누르면 최근 경고를 되돌아볼 수 있습니다.",
+                "탭하면 최근 경고를 볼 수 있습니다",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -177,7 +181,9 @@ private fun StatusPill(state: TelemetrySnapshot) {
             label,
             color = color,
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

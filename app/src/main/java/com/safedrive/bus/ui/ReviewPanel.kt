@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.safedrive.bus.core.EventType
@@ -72,9 +73,11 @@ fun ReviewPanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (autoOpened) "정차 중 · 방금 운행 되돌아보기" else "최근 경고 되돌아보기",
+                        if (autoOpened) "정차 중 · 방금 운행" else "최근 경고",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         if (range == ReviewRange.SEGMENT) {
@@ -83,15 +86,17 @@ fun ReviewPanel(
                             "최근 " + range.label
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
                     )
                 }
-                TextButton(onClick = onClose) { Text("닫기") }
+                TextButton(onClick = onClose) { Text("닫기", maxLines = 1) }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 칩을 같은 너비로 나눠 어떤 해상도에서도 한 줄에 들어가게 한다.
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ReviewRange.entries.forEach { r ->
-                    RangeChip(r.label, r == range) { onRangeChange(r) }
+                    RangeChip(r.label, r == range, Modifier.weight(1f)) { onRangeChange(r) }
                 }
             }
 
@@ -183,20 +188,28 @@ private fun ReviewRow(e: DrivingEvent, nowMs: Long) {
 }
 
 @Composable
-private fun RangeChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun RangeChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     Box(
-        Modifier
+        modifier
             .background(
                 if (selected) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.surface,
                 RoundedCornerShape(16.dp)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp)
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
         Text(
             label,
             fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
             color = if (selected) MaterialTheme.colorScheme.onPrimary
             else MaterialTheme.colorScheme.onSurface
         )

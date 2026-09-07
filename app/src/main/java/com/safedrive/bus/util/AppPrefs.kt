@@ -47,8 +47,19 @@ class AppPrefs(context: Context) {
         get() = sp.getBoolean(KEY_KEEP_AWAKE, false)
         set(v) = sp.edit().putBoolean(KEY_KEEP_AWAKE, v).apply()
 
+    /**
+     * 글자 크기 배율.
+     *
+     * 기본값은 기기 해상도와 무관하게 모든 문구가 한 줄에 들어가도록 맞춘 값이다.
+     * 화면이 작거나 시스템 글꼴을 크게 쓰는 기기에서 줄바꿈이 생기면 사용자가 줄일 수 있다.
+     */
+    var textScale: Float
+        get() = sp.getFloat(KEY_TEXT_SCALE, 1.0f)
+        set(v) = sp.edit().putFloat(KEY_TEXT_SCALE, v).apply()
+
     private companion object {
         const val KEY_ONBOARDING = "onboarding_done"
+        const val KEY_TEXT_SCALE = "text_scale"
         const val KEY_AUTO_START = "auto_start"
         const val KEY_DIAG = "diagnostic_recording"
         const val KEY_KEEP_AWAKE = "keep_awake"

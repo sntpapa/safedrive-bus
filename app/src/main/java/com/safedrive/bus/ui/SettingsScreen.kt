@@ -1,6 +1,9 @@
 package com.safedrive.bus.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -49,6 +53,8 @@ fun SettingsScreen(
     onToggleAutoStart: (Boolean) -> Unit,
     onToggleDiagnostic: (Boolean) -> Unit,
     onToggleKeepAwake: (Boolean) -> Unit,
+    textScale: Float,
+    onTextScaleChange: (Float) -> Unit,
     onStartService: () -> Unit,
     onStopService: () -> Unit,
     onAddZone: (name: String, lat: Double, lon: Double, radiusM: Double, limitKmh: Double) -> Unit,
@@ -122,6 +128,27 @@ fun SettingsScreen(
             }
         }
 
+        Card {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle("글자 크기")
+                Text(
+                    "기본값은 대부분의 기기에서 문구가 한 줄에 들어가도록 맞춰 두었습니다. " +
+                        "화면이 작거나 시스템 글꼴이 크면 줄바꿈이 생길 수 있으니 그때 줄이세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TEXT_SCALES.forEach { (label, value) ->
+                        ScaleChip(
+                            label = label,
+                            selected = kotlin.math.abs(textScale - value) < 0.01f,
+                            modifier = Modifier.weight(1f)
+                        ) { onTextScaleChange(value) }
+                    }
+                }
+            }
+        }
+
         SpeedZoneSection(
             zones = zones,
             roadDataReady = state.roadDataReady,
@@ -135,6 +162,41 @@ fun SettingsScreen(
 
         DisclaimerCard()
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+private val TEXT_SCALES = listOf(
+    "아주 작게" to 0.80f,
+    "작게" to 0.90f,
+    "보통" to 1.00f,
+    "크게" to 1.15f
+)
+
+@Composable
+private fun ScaleChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant,
+                RoundedCornerShape(16.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 

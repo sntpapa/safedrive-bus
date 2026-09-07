@@ -42,7 +42,17 @@ data class AlignmentSnapshot(
     val mountStable: Boolean = true,
     /** 마지막으로 정렬이 깨진 이유. UI 표시용. */
     val lastInvalidationReason: String = "",
-    val invalidationCount: Int = 0
+    val invalidationCount: Int = 0,
+
+    // --- 정차 판정 진단 ---
+    /** 최근 프레임의 가속도 크기 [m/s^2]. 정지 상태에서 9.81 근처여야 한다. */
+    val accelMagnitude: Float = 0f,
+    /** 중력 확정을 위해 지금까지 누적한 샘플 수. 조건이 깨지면 0으로 돌아간다. */
+    val gravitySamples: Int = 0,
+    /** 누적 구간의 가속도 크기 표준편차. 진동이 크면 여기서 걸린다. */
+    val gravityStdDev: Float = 0f,
+    /** 정차 조건 중 무엇이 막고 있는지. 통과 중이면 빈 문자열. */
+    val stationaryBlockedBy: String = ""
 ) {
     val aligned: Boolean get() = state == AlignmentState.ALIGNED
     /** 전체 진행률 0..1 (중력 40% + 전방 60% 가중) */
@@ -122,6 +132,12 @@ class FrameAligner {
 
     private var invalidationReason = ""
     private var invalidationCount = 0
+
+    // --- 정차 판정 진단 ---
+    private var lastAccelMag = 0f
+    private var lastGravityStd = 0f
+    private var stationaryBlockedBy = ""
+
 
     fun reset() {
         state = AlignmentState.WAITING_STATIONARY
@@ -205,7 +221,11 @@ class FrameAligner {
             mountRateDps = mountRateLpf.value.toFloat(),
             mountStable = mountStable && !mountHeldUnstable(SystemClock.elapsedRealtime()),
             lastInvalidationReason = invalidationReason,
-            invalidationCount = invalidationCount
+            invalidationCount = invalidationCount,
+            accelMagnitude = lastAccelMag,
+            gravitySamples = gravityCount,
+            gravityStdDev = lastGravityStd,
+            stationaryBlockedBy = stationaryBlockedBy
         )
     }
 
@@ -219,12 +239,25 @@ class FrameAligner {
         gpsFresh: Boolean,
         nowMs: Long
     ) {
-        val stationary = gpsFresh &&
-            gpsSpeedMps != null &&
-            gpsSpeedMps < Constants.STATIONARY_SPEED_MPS &&
-            abs(frame.accel.norm - Constants.STANDARD_GRAVITY) < Constants.STATIONARY_ACCEL_TOLERANCE
+        val mag = frame.accel.norm
+        lastAccelMag = mag
 
-        if (!stationary || frame.degraded) {
+        // 어느 조건이 막고 있는지 화면에 그대로 보여 준다.
+        // 이걸 모르면 "왜 0%인지"를 추측으로 고치게 된다.
+        stationaryBlockedBy = when {
+            frame.degraded -> "센서 정합 오차"
+            !gpsFresh -> "GPS 지연"
+            gpsSpeedMps == null -> "GPS 속도 없음"
+            gpsSpeedMps >= Constants.STATIONARY_SPEED_MPS ->
+                "속도 %.1f km/h".format(gpsSpeedMps * 3.6f)
+            abs(mag - Constants.STANDARD_GRAVITY) >= Constants.STATIONARY_ACCEL_TOLERANCE ->
+                "가속도 크기 %.2f (기준 %.2f±%.2f)".format(
+                    mag, Constants.STANDARD_GRAVITY, Constants.STATIONARY_ACCEL_TOLERANCE
+                )
+            else -> ""
+        }
+
+        if (stationaryBlockedBy.isNotEmpty()) {
             if (gravityCount > 0) clearGravityAccumulator()
             state = AlignmentState.WAITING_STATIONARY
             return
@@ -236,9 +269,9 @@ class FrameAligner {
         }
 
         gravitySum += frame.accel
-        val mag = frame.accel.norm.toDouble()
-        gravityMagSum += mag
-        gravityMagSqSum += mag * mag
+        val sampleMag = frame.accel.norm.toDouble()
+        gravityMagSum += sampleMag
+        gravityMagSqSum += sampleMag * sampleMag
         gravityCount++
 
         if (nowMs - gravityStartElapsedMs < Constants.GRAVITY_CAPTURE_MS) return
@@ -249,7 +282,11 @@ class FrameAligner {
         val mean = gravityMagSum / n
         val variance = (gravityMagSqSum / n) - mean * mean
         val std = if (variance > 0) sqrt(variance) else 0.0
+        lastGravityStd = std.toFloat()
         if (std > Constants.STATIONARY_ACCEL_STD_MAX) {
+            stationaryBlockedBy = "진동 %.3f (기준 %.2f 이하)".format(
+                std, Constants.STATIONARY_ACCEL_STD_MAX
+            )
             clearGravityAccumulator()
             state = AlignmentState.WAITING_STATIONARY
             return
