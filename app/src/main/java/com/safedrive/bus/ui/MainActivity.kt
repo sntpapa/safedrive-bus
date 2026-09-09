@@ -11,18 +11,22 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -35,12 +39,14 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.safedrive.bus.core.Constants
 import com.safedrive.bus.data.CsvExporter
 import com.safedrive.bus.data.SpeedZoneEntity
 import com.safedrive.bus.data.TripRepository
@@ -55,46 +61,158 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.net.Uri
 
+/**
+ * 뒤로가기로 앱을 닫을 때의 확인.
+ *
+ * 뒤로가기는 "이 작업을 끝낸다"는 뜻으로 쓴다. 그래서 여기서 닫으면 기록도 함께 멈춘다.
+ * 잠시 다른 앱을 보는 것은 홈 버튼이나 전화 수신처럼 앱이 뒤로 물러나는 경우이고,
+ * 그때는 서비스가 그대로 돌기 때문에 이 확인이 뜨지 않는다.
+ *
+ * 대신 제스처 내비게이션에서 뒤로가기는 화면 가장자리 스와이프라 운전 중 스치기 쉽다.
+ * 그래서 기록 시간과 경고 건수를 함께 보여 준다. "3시간 12분 기록 중"이 보이면
+ * 아직 운행 중이라는 것을 그 자리에서 알아채고 취소할 수 있다.
+ */
 @Composable
 private fun ExitDialog(
     serviceRunning: Boolean,
+    tripDurationMs: Long,
+    warnedCount: Int,
     onDismiss: () -> Unit,
-    onCloseKeepRunning: () -> Unit,
-    onStopAndClose: () -> Unit
+    onCloseAndStop: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("앱을 닫을까요?") },
+        title = { Text("앱을 종료할까요?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    if (serviceRunning) {
-                        "앱을 닫아도 수집은 계속됩니다. 화면을 끄고 운행해야 하기 때문입니다. " +
-                            "운행이 끝났다면 아래에서 수집까지 멈출 수 있습니다."
-                    } else {
-                        "수집은 이미 정지된 상태입니다."
-                    },
-                    style = MaterialTheme.typography.bodyMedium
-                )
                 if (serviceRunning) {
-                    TextButton(
-                        onClick = onStopAndClose,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("수집도 정지하고 닫기", maxLines = 1)
-                    }
+                    ExitTripStat(tripDurationMs, warnedCount)
+                    Text(
+                        "운행도 함께 종료됩니다.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        "휴게 중이거나 잠시 다른 앱을 볼 때는 홈 버튼을 누르세요. 같은 운행으로 이어집니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        "진행 중인 운행이 없습니다.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onCloseKeepRunning) {
-                Text(if (serviceRunning) "닫기 (수집 유지)" else "닫기", maxLines = 1)
-            }
+            Button(
+                onClick = onCloseAndStop,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                )
+            ) { Text("확인", maxLines = 1) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("취소", maxLines = 1) }
+            OutlinedButton(onClick = onDismiss) { Text("취소", maxLines = 1) }
         }
     )
+}
+
+/**
+ * 5분 이상 정차했을 때의 운행 종료 확인.
+ *
+ * 종점 회차인지 긴 신호 대기인지는 앱이 구분할 수 없다. 그래서 자동으로 끊지 않고
+ * 묻는다. 잘못 끊으면 그 뒤 구간이 별개 운행으로 갈리고, 잘못 이어가면 퇴근 후에도
+ * GPS가 계속 돈다. 판단할 수 있는 것은 기사뿐이다.
+ */
+@Composable
+private fun IdleEndDialog(
+    tripDurationMs: Long,
+    idleMs: Long,
+    warnedCount: Int,
+    onContinue: () -> Unit,
+    onEndTrip: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onContinue,
+        title = { Text("운행을 종료할까요?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        ExitStatItem("운행 시간", formatDuration(tripDurationMs))
+                        ExitStatItem("정차", formatDuration(idleMs))
+                        ExitStatItem("경고", "${warnedCount}건")
+                    }
+                }
+                Text(
+                    "종료하면 여기까지가 운행 기록 한 건으로 남습니다.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "휴게 중이거나 회차 대기라면 계속 운행을 고르세요. 같은 운행으로 이어집니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onEndTrip,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                )
+            ) { Text("운행 종료", maxLines = 1) }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onContinue) { Text("계속 운행", maxLines = 1) }
+        }
+    )
+}
+
+/** 지금 진행 중인 운행. 오터치로 뜬 팝업을 알아채는 근거가 된다. */
+@Composable
+private fun ExitTripStat(tripDurationMs: Long, warnedCount: Int) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            ExitStatItem("운행 시간", formatDuration(tripDurationMs))
+            ExitStatItem("경고", "${warnedCount}건")
+        }
+    }
+}
+
+@Composable
+private fun ExitStatItem(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+    }
 }
 
 private enum class Tab(val label: String) {
@@ -121,6 +239,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = AppPrefs(this)
         // 앱을 새로 여는 것은 운행하겠다는 뜻이므로 직전의 정지 표시를 푼다.
+        // 뒤로가기로 닫으면 수집도 함께 멈추므로, 표시를 그보다 오래 들고 있을 이유가 없다.
         prefs.userStopped = false
 
         setContent {
@@ -214,6 +333,16 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // 시작은 주행 화면과 설정 두 곳에서 부른다. 권한 처리를 두 번 쓰지 않는다.
+        val startService = {
+            prefs.userStopped = false
+            if (!Permissions.hasFineLocation(this@MainActivity)) {
+                foregroundPermissionLauncher.launch(Permissions.foregroundRequest())
+            } else {
+                DrivingService.start(this@MainActivity)
+            }
+        }
+
         val zones by repo.speedZoneDao.all().collectAsStateWithLifecycle(emptyList())
         val trips by repo.recentTrips().collectAsStateWithLifecycle(emptyList())
 
@@ -236,15 +365,45 @@ class MainActivity : ComponentActivity() {
             if (tab != Tab.DRIVE) tab = Tab.DRIVE else confirmExit = true
         }
 
+        // 5분 넘게 움직이지 않으면 운행을 끝낼지 묻는다. 버튼을 상시 노출하는 대신
+        // 필요한 순간에만 나타나게 한다. 종점 회차인지 신호 대기인지는 앱이 알 수 없으므로
+        // 자동으로 끊지 않고 반드시 기사에게 확인한다.
+        //
+        // "계속 운행"을 고르면 그 정차 동안에는 다시 묻지 않는다. 출발했다가 다시 5분
+        // 넘게 서면 그때 새로 묻는다.
+        //
+        // 아무것도 고르지 않은 채 차가 다시 움직이면 팝업은 저절로 닫히고 운행이 이어진다.
+        // 출발로 `review.stopped`가 풀려 idleMs가 0이 되기 때문이다. 이 경로에서는
+        // 서비스를 건드리지 않으므로 같은 운행으로 계속 기록된다. 휴게를 마치고 그냥
+        // 출발하는 것이 가장 흔한 경우이므로, 그때 아무 조작도 요구하지 않는다.
+        var idlePromptAnsweredFor by remember { mutableLongStateOf(0L) }
+        val stoppedSince = state.review.stoppedSinceWallMs
+        val idleMs = if (state.serviceRunning && state.review.stopped && stoppedSince != 0L) {
+            System.currentTimeMillis() - stoppedSince
+        } else {
+            0L
+        }
+        if (idleMs >= Constants.IDLE_END_PROMPT_MS && stoppedSince != idlePromptAnsweredFor) {
+            IdleEndDialog(
+                tripDurationMs = state.tripDurationMs,
+                idleMs = idleMs,
+                warnedCount = state.totalWarned,
+                onContinue = { idlePromptAnsweredFor = stoppedSince },
+                onEndTrip = {
+                    idlePromptAnsweredFor = stoppedSince
+                    prefs.userStopped = true
+                    DrivingService.stop(this@MainActivity)
+                }
+            )
+        }
+
         if (confirmExit) {
             ExitDialog(
                 serviceRunning = state.serviceRunning,
+                tripDurationMs = state.tripDurationMs,
+                warnedCount = state.totalWarned,
                 onDismiss = { confirmExit = false },
-                onCloseKeepRunning = {
-                    confirmExit = false
-                    finish()
-                },
-                onStopAndClose = {
+                onCloseAndStop = {
                     confirmExit = false
                     prefs.userStopped = true
                     DrivingService.stop(this@MainActivity)
@@ -272,11 +431,7 @@ class MainActivity : ComponentActivity() {
                             reviewManuallyOpen = reviewOpen,
                             reviewRange = reviewRange,
                             onToggleReview = { reviewOpen = !reviewOpen },
-                            onReviewRangeChange = { reviewRange = it },
-                            onStopService = {
-                                prefs.userStopped = true
-                                DrivingService.stop(this@MainActivity)
-                            }
+                            onReviewRangeChange = { reviewRange = it }
                         )
 
                         Tab.HISTORY -> HistoryScreen(
@@ -286,6 +441,20 @@ class MainActivity : ComponentActivity() {
                             exportMessage = exportMessage,
                             canShare = exportedUri != null,
                             onSelectTrip = { selectedTripId = it },
+                            onDeleteTrip = { id ->
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { repo.deleteTrip(id) }
+                                    if (selectedTripId == id) selectedTripId = 0L
+                                }
+                            },
+                            onDeleteAll = {
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { repo.deleteFinishedTrips() }
+                                    selectedTripId = 0L
+                                    exportMessage = ""
+                                    exportedUri = null
+                                }
+                            },
                             onExportCsv = {
                                 scope.launch {
                                     val r = withContext(Dispatchers.IO) {
@@ -332,16 +501,13 @@ class MainActivity : ComponentActivity() {
                                 prefs.textScale = it
                                 textScale = it
                             },
-                            onStartService = {
-                                prefs.userStopped = false
-                                if (!Permissions.hasFineLocation(this@MainActivity)) {
-                                    foregroundPermissionLauncher
-                                        .launch(Permissions.foregroundRequest())
-                                } else {
-                                    DrivingService.start(this@MainActivity)
-                                }
+                            onStartService = startService,
+                            // 정지 표시를 남기지 않으면 자동 시작이 곧바로 다시 켠다.
+                            // 주행 화면·알림과 달리 이 경로에만 표시가 빠져 있었다.
+                            onStopService = {
+                                prefs.userStopped = true
+                                DrivingService.stop(this@MainActivity)
                             },
-                            onStopService = { DrivingService.stop(this@MainActivity) },
                             onAddZone = { name, lat, lon, radius, limit ->
                                 scope.launch(Dispatchers.IO) {
                                     repo.speedZoneDao.insert(

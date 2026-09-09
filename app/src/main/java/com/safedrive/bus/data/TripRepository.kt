@@ -56,7 +56,7 @@ class TripRepository(context: Context) {
 
         // 이력만 확인하려고 앱을 열었다 나간 경우까지 운행으로 남으면 이력이 지저분해진다.
         // 사실상 움직이지 않았고 걸린 항목도 없으면 기록을 지운다.
-        if (distanceM < TRIVIAL_TRIP_DISTANCE_M && eventDao.countForTrip(tripId) == 0) {
+        if (isTrivial(distanceM, endedAtMs - trip.startedAtMs, tripId)) {
             tripDao.deleteById(tripId)
             return
         }
@@ -119,6 +119,60 @@ class TripRepository(context: Context) {
 
     suspend fun eventsSince(sinceMs: Long): List<EventEntity> = eventDao.since(sinceMs)
 
+    /**
+     * 남길 가치가 없는 운행인지.
+     *
+     * 거리만 보면 GPS 잡음으로 100~500m가 찍힌 짧은 실행이 살아남는다. 실제 이력에
+     * `0.5 km · 1분 2초`, `0.3 km · 13분 30초` 같은 건이 그렇게 쌓였다.
+     * 걸린 항목이 하나라도 있으면 짧아도 남긴다. 그게 이 앱의 존재 이유이기 때문이다.
+     */
+    private suspend fun isTrivial(distanceM: Double, durationMs: Long, tripId: Long): Boolean {
+        if (eventDao.countForTrip(tripId) > 0) return false
+        if (distanceM < TRIVIAL_TRIP_DISTANCE_M) return true
+        return distanceM < SHORT_TRIP_DISTANCE_M && durationMs < SHORT_TRIP_DURATION_MS
+    }
+
+    /**
+     * 종료되지 않은 채 남은 과거 운행을 마감한다. 서비스 시작 때 호출한다.
+     *
+     * 절전 정책이 프로세스를 죽이면 `stopCollection()`이 돌지 못해 운행이 열린 채 남고,
+     * 빈 운행 삭제도 마감 시점에만 돌기 때문에 `0.0 km · 진행 중`이 영원히 쌓인다.
+     * 이어받을 운행(`keepTripId`)만 남기고 나머지를 닫는다.
+     *
+     * 종료 시각은 마지막 이벤트 시각을 쓴다. 없으면 시작 시각으로 둔다.
+     * 지금 시각을 쓰면 며칠 전 죽은 운행이 "5일 12시간"으로 표시된다.
+     */
+    suspend fun closeOrphanTrips(keepTripId: Long) {
+        for (trip in tripDao.openTripsExcept(keepTripId)) {
+            if (isTrivial(trip.distanceM, 0L, trip.id)) {
+                tripDao.deleteById(trip.id)
+                continue
+            }
+            val lastEvent = eventDao.lastOccurredAt(trip.id)
+            tripDao.update(trip.copy(endedAtMs = lastEvent ?: trip.startedAtMs))
+        }
+    }
+
+    /**
+     * 운행 하나와 그 이벤트를 지운다.
+     *
+     * 진행 중인 운행은 서비스가 계속 쓰고 있으므로 지우지 않는다. 지우면 이후 판정이
+     * 존재하지 않는 운행에 기록된다.
+     */
+    suspend fun deleteTrip(tripId: Long): Boolean {
+        val trip = tripDao.byId(tripId) ?: return false
+        if (trip.endedAtMs == null) return false
+        eventDao.deleteForTrip(tripId)
+        tripDao.deleteById(tripId)
+        return true
+    }
+
+    /** 마감된 운행을 전부 지운다. 진행 중인 운행은 남는다. */
+    suspend fun deleteFinishedTrips() {
+        eventDao.deleteForFinishedTrips()
+        tripDao.deleteFinished()
+    }
+
     /** 보관 기간이 지난 기록을 지운다. 서비스 시작 때마다 호출한다. */
     suspend fun purgeOld() {
         val cutoff = System.currentTimeMillis() - historyWindowMs()
@@ -131,5 +185,9 @@ class TripRepository(context: Context) {
     private companion object {
         /** 이 거리 미만이면 실제 운행으로 보지 않는다. */
         const val TRIVIAL_TRIP_DISTANCE_M = 100.0
+
+        /** 이 거리·시간을 모두 밑돌고 걸린 항목도 없으면 실제 운행으로 보지 않는다. */
+        const val SHORT_TRIP_DISTANCE_M = 800.0
+        const val SHORT_TRIP_DURATION_MS = 3 * 60 * 1000L
     }
 }

@@ -410,19 +410,27 @@ object Constants {
     /** 출발로 인정하는 속도. 정지 임계값보다 높게 두어 경계에서 떨리지 않게 한다. */
     const val REVIEW_DEPART_SPEED_KMH: Float = 5.0f
 
-    /** 되돌아보기용으로 메모리에 들고 있는 기간. 5분 조회 + 여유. */
-    const val REVIEW_RETENTION_MS: Long = 10 * 60 * 1000L
+    /**
+     * 되돌아보기용으로 메모리에 들고 있는 기간.
+     * 가장 긴 조회 구간(10분)보다 길어야 한다. 같은 값이면 10분 조회가
+     * 경계에서 잘려 실제보다 적게 보인다.
+     */
+    const val REVIEW_RETENTION_MS: Long = 12 * 60 * 1000L
 
     /** 메모리 보호용 상한. */
     const val REVIEW_MAX_EVENTS: Int = 80
 
     /**
-     * 서비스가 되살아났을 때 직전 운행을 이어받는 시간 창.
+     * 이만큼 움직이지 않으면 운행을 끝낼지 물어본다.
      *
-     * 이 시간 안에 되살아나면 같은 운행으로 본다. 제조사 절전 정책에 의한 종료와
-     * 재시작은 대개 수 초~수 분 안에 일어난다. 넘으면 새 운행으로 시작한다.
+     * 신호 대기와 구분되어야 하므로 넉넉히 잡는다. 도심 최장 신호 주기가 3분 안쪽이고
+     * 정류소 대기도 그보다 짧다. 종점 회차 대기는 보통 5~10분이다.
      */
-    const val SESSION_RESUME_WINDOW_MS: Long = 10 * 60 * 1000L
+    const val IDLE_END_PROMPT_MS: Long = 5 * 60 * 1000L
+
+    // 이어받기에는 시간 창을 두지 않는다. 운행의 경계는 기사의 `운행 종료`이지
+    // 서비스가 몇 분 만에 되살아났는가가 아니기 때문이다. 30분 휴게 중에 절전 정책이
+    // 프로세스를 죽여도 같은 운행으로 이어진다. 판단은 DrivingService.resumeOrStartTrip.
 
     /** 생존 신호 기록 주기. 너무 잦으면 저장소를 불필요하게 쓴다. */
     const val SESSION_HEARTBEAT_INTERVAL_MS: Long = 5000L

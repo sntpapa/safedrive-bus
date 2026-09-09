@@ -32,6 +32,19 @@ interface TripDao {
 
     @Query("DELETE FROM trips WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    /** 마감된 운행만 지운다. 진행 중인 운행은 서비스가 쓰고 있으므로 남긴다. */
+    @Query("DELETE FROM trips WHERE ended_at IS NOT NULL")
+    suspend fun deleteFinished()
+
+    /**
+     * 종료되지 않은 채 남은 운행.
+     *
+     * 제조사 절전 정책이 프로세스를 죽이면 마감 코드가 돌지 못해 `ended_at`이 비어 있고,
+     * 이력에 "진행 중"으로 영원히 남는다.
+     */
+    @Query("SELECT * FROM trips WHERE ended_at IS NULL AND id != :keepId ORDER BY started_at")
+    suspend fun openTripsExcept(keepId: Long): List<TripEntity>
 }
 
 @Dao
@@ -71,6 +84,19 @@ interface EventDao {
 
     @Query("SELECT COUNT(*) FROM events WHERE trip_id = :tripId")
     suspend fun countForTrip(tripId: Long): Int
+
+    /** 마감되지 못한 운행의 종료 시각을 추정할 때 쓴다. */
+    @Query("SELECT MAX(occurred_at) FROM events WHERE trip_id = :tripId")
+    suspend fun lastOccurredAt(tripId: Long): Long?
+
+    @Query("DELETE FROM events WHERE trip_id = :tripId")
+    suspend fun deleteForTrip(tripId: Long)
+
+    @Query(
+        "DELETE FROM events WHERE trip_id IN " +
+            "(SELECT id FROM trips WHERE ended_at IS NOT NULL)"
+    )
+    suspend fun deleteForFinishedTrips()
 
     @Query("DELETE FROM events WHERE occurred_at < :beforeMs")
     suspend fun purgeBefore(beforeMs: Long)

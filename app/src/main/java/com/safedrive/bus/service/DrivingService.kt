@@ -283,10 +283,18 @@ class DrivingService : LifecycleService() {
      */
     private suspend fun resumeOrStartTrip() {
         val now = System.currentTimeMillis()
-        val beat = prefs.sessionHeartbeat
         val prevTrip = prefs.sessionTripId
-        val resumable = beat != 0L && prevTrip != 0L &&
-            now - beat in 0..Constants.SESSION_RESUME_WINDOW_MS &&
+        val prevStart = prefs.sessionStartedAt
+
+        // 운행의 경계는 기사가 정한다. 운행 종료·앱 종료·알림 정지에서만 clearSession()이
+        // 돌고, 그 외에 세션 정보가 남아 있다면 절전 정책이 프로세스를 죽인 것이다.
+        //
+        // 예전에는 마지막 생존 신호로부터 10분 안에 되살아난 경우만 이어받았다. 그러면
+        // 30분 휴게 중에 서비스가 죽었을 때 같은 운행이 이력 두 건으로 갈린다.
+        // 날짜만 확인한다. 자정을 넘긴 운행은 어차피 rolloverIfNewDay가 끊는다.
+        val resumable = prevTrip != 0L &&
+            prevStart != 0L &&
+            localDate(prevStart) == localDate(now) &&
             repo.isTripOpen(prevTrip)
 
         if (resumable) {
@@ -309,7 +317,53 @@ class DrivingService : LifecycleService() {
         }
         prefs.sessionHeartbeat = now
         sessionReady = true
+
+        // 절전 정책에 프로세스가 죽으면 마감 코드가 돌지 못해 운행이 열린 채 남는다.
+        // 이력에 "진행 중"으로 쌓이므로, 지금 쓰는 운행만 빼고 여기서 닫는다.
+        repo.closeOrphanTrips(tripId)
     }
+
+    /**
+     * 자정을 넘기면 운행을 끊고 새로 시작한다.
+     *
+     * 하나의 기록이 날짜를 넘겨 이어지면 "오늘 몇 건"이 어제 것과 섞인다.
+     * 막차가 자정을 넘겨도 그 시점에 끊는다. 어제 운행은 이력에 그대로 남는다.
+     */
+    private suspend fun rolloverIfNewDay(nowWall: Long) {
+        if (tripId == 0L || !sessionReady) return
+        if (localDate(nowWall) == localDate(startedAtWallMs)) return
+
+        val summary = gaps.snapshot()
+        repo.finishTrip(
+            tripId = tripId,
+            endedAtMs = nowWall,
+            distanceM = motionSnapshot.distanceM,
+            dataGapMs = summary.totalDataGapMs,
+            stallMs = summary.totalStallMs,
+            gapCount = summary.gapCount,
+            unmatchedLimitSamples = judge.stats().unmatchedLimitSamples
+        )
+
+        startedAtWallMs = nowWall
+        lastWarnWallMs = 0L
+        lastWarnDistanceM = motionSnapshot.distanceM
+        eventCounts.clear()
+        warnedCounts.clear()
+        sessionRestartCount = 0
+        tripId = repo.startTrip(nowWall)
+
+        prefs.sessionTripId = tripId
+        prefs.sessionStartedAt = nowWall
+        prefs.sessionDistanceM = 0f
+        prefs.sessionLastWarnAt = 0L
+        prefs.sessionLastWarnDistanceM = 0f
+        prefs.sessionRestartCount = 0
+    }
+
+    private fun localDate(wallMs: Long): java.time.LocalDate =
+        java.time.Instant.ofEpochMilli(wallMs)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toLocalDate()
 
     private fun stopCollection() {
         sampler?.stop(); sampler = null
@@ -513,6 +567,7 @@ class DrivingService : LifecycleService() {
             }
 
             val nowWall = System.currentTimeMillis()
+            rolloverIfNewDay(nowWall)
             if (sessionReady && nowWall - lastHeartbeatMs > Constants.SESSION_HEARTBEAT_INTERVAL_MS) {
                 lastHeartbeatMs = nowWall
                 prefs.sessionHeartbeat = nowWall

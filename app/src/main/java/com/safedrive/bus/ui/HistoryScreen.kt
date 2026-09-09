@@ -11,12 +11,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -45,8 +53,39 @@ fun HistoryScreen(
     canShare: Boolean,
     onSelectTrip: (Long) -> Unit,
     onExportCsv: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onDeleteTrip: (Long) -> Unit,
+    onDeleteAll: () -> Unit
 ) {
+    // 삭제는 되돌릴 수 없으므로 반드시 확인을 거친다.
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+    var confirmDeleteTrip by remember { mutableLongStateOf(0L) }
+
+    if (confirmDeleteAll) {
+        DeleteDialog(
+            title = "이력을 모두 지울까요?",
+            body = "지금까지의 운행과 이벤트가 전부 삭제됩니다. 되돌릴 수 없습니다. " +
+                "진행 중인 운행은 남습니다.",
+            onDismiss = { confirmDeleteAll = false },
+            onConfirm = {
+                confirmDeleteAll = false
+                onDeleteAll()
+            }
+        )
+    }
+    if (confirmDeleteTrip != 0L) {
+        val target = confirmDeleteTrip
+        DeleteDialog(
+            title = "이 운행을 지울까요?",
+            body = "이 운행과 여기에 기록된 이벤트가 삭제됩니다. 되돌릴 수 없습니다.",
+            onDismiss = { confirmDeleteTrip = 0L },
+            onConfirm = {
+                confirmDeleteTrip = 0L
+                onDeleteTrip(target)
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -62,6 +101,17 @@ fun HistoryScreen(
                 modifier = Modifier.weight(1f)
             )
             OutlinedButton(onClick = onExportCsv) { Text("CSV 내보내기") }
+        }
+        if (trips.isNotEmpty()) {
+            // 내보내기 옆이 아니라 아래 한 줄로 둔다. 삭제가 내보내기와 나란히 있으면
+            // 잘못 누르기 쉽다.
+            OutlinedButton(
+                onClick = { confirmDeleteAll = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) { Text("이력 모두 삭제") }
         }
         if (canShare) {
             OutlinedButton(onClick = onShare, modifier = Modifier.fillMaxWidth()) {
@@ -89,6 +139,16 @@ fun HistoryScreen(
 
         if (selectedSummary != null) {
             SummaryCard(selectedSummary)
+            // 진행 중인 운행은 서비스가 쓰고 있으므로 삭제 버튼을 내지 않는다.
+            if (selectedSummary.trip.endedAtMs != null) {
+                OutlinedButton(
+                    onClick = { confirmDeleteTrip = selectedSummary.trip.id },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("이 운행 삭제") }
+            }
         }
 
         if (trips.isEmpty()) {
@@ -107,6 +167,33 @@ fun HistoryScreen(
         }
         Spacer(Modifier.height(24.dp))
     }
+}
+
+/** 삭제 확인. 지우는 대상과 되돌릴 수 없다는 사실을 함께 밝힌다. */
+@Composable
+private fun DeleteDialog(
+    title: String,
+    body: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body, style = MaterialTheme.typography.bodyMedium) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                )
+            ) { Text("삭제", maxLines = 1) }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("취소", maxLines = 1) }
+        }
+    )
 }
 
 @Composable
