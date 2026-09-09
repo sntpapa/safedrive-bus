@@ -370,6 +370,19 @@ class JudgementEngine(
             else -> -magnitude > Constants.PLAUSIBLE_MAX_DECEL_KMH_PER_SEC
         }
 
+        // IMU 종가속도와 대조한다. peakLongitudinal은 판정 창 안의 최대값이므로
+        // 진짜 이벤트라면 GPS 1초 평균보다 작을 수 없다. 한참 작거나 부호가 반대면
+        // GPS 쪽이 틀린 것이다. 실측에서 급출발·급가속 오탐이 이렇게 드러났다.
+        //
+        // 정렬이 끝나야 종방향 축이 존재한다. 정렬 전에는 피크가 항상 0이므로
+        // 검사하면 모든 이벤트가 보류된다. 반드시 게이트를 함께 본다.
+        val imuPeak = history.peakLongitudinal(windowFromNs, i.timestampNs)
+        val imuMismatch = applyBorderline &&
+            sign != 0 &&
+            i.gates.alignment.passed &&
+            imuPeak != 0f &&
+            imuPeak * sign < abs(magnitude) * Constants.MIN_IMU_AGREEMENT_RATIO
+
         // GPS 속도 잡음보다 충분히 크지 않으면 판정값을 신뢰할 수 없다.
         val sigma = i.speedAccuracyMps?.takeIf { it > 0f }?.let { it * 1.4142f * 3.6f }
         val lowSnr = sign != 0 && sigma != null &&
@@ -378,6 +391,7 @@ class JudgementEngine(
         val reason = when {
             implausible -> SuppressReason.IMPLAUSIBLE
             lowSnr -> SuppressReason.LOW_SNR
+            imuMismatch -> SuppressReason.IMU_MISMATCH
             conflicting -> SuppressReason.CONFLICTING_DIRECTION
             borderline && !i.pitchReliable -> SuppressReason.BORDERLINE_PITCH
             borderline && shock -> SuppressReason.BORDERLINE_SHOCK
@@ -396,7 +410,7 @@ class JudgementEngine(
                 wallMs = i.wallMs,
                 speedKmh = i.speedKmh,
                 judgedValue = magnitude,
-                peakKmhPerSec = history.peakLongitudinal(windowFromNs, i.timestampNs),
+                peakKmhPerSec = imuPeak,
                 speedAccuracyMps = i.speedAccuracyMps,
                 turnAngleDeg = turnAngle,
                 turnDirection = turnDirection,
