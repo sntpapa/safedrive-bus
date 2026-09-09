@@ -5,6 +5,9 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// 내려받은 파일만 보고 어떤 빌드인지 알 수 있어야 하므로 한 곳에서 관리한다.
+val appVersionName = "0.10.0"
+
 android {
     namespace = "com.safedrive.bus"
     compileSdk = 35
@@ -15,8 +18,8 @@ android {
         // 어차피 포그라운드 서비스가 필수이므로 26 미만은 지원하지 않는다.
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.5.0-stage5"
+        versionCode = 7
+        versionName = appVersionName
     }
 
     buildTypes {
@@ -36,6 +39,11 @@ android {
     buildFeatures {
         compose = true
     }
+}
+
+// APK 파일명을 safedrive-v<버전>-<빌드타입>.apk 로 만든다.
+base {
+    archivesName.set("safedrive-v$appVersionName")
 }
 
 // Room 스키마를 파일로 남겨 마이그레이션 검토가 가능하게 한다. (top-level 확장이라 android {} 밖에 둔다)

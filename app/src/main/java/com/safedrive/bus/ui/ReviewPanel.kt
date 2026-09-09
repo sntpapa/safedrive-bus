@@ -37,9 +37,9 @@ import kotlin.math.abs
 /** 되돌아볼 범위. */
 enum class ReviewRange(val label: String) {
     SEGMENT("방금 구간"),
-    M1("1분"),
     M3("3분"),
-    M5("5분")
+    M5("5분"),
+    M10("10분")
 }
 
 /**
@@ -59,9 +59,9 @@ fun ReviewPanel(
     val now = System.currentTimeMillis()
     val events = when (range) {
         ReviewRange.SEGMENT -> review.sinceDeparture(now)
-        ReviewRange.M1 -> review.within(1, now)
         ReviewRange.M3 -> review.within(3, now)
         ReviewRange.M5 -> review.within(5, now)
+        ReviewRange.M10 -> review.within(10, now)
     }.filter { it.suppressReason != SuppressReason.ABSORBED_BY_UTURN }
 
     Card(

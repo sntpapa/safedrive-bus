@@ -139,8 +139,8 @@ fun SettingsScreen(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionTitle("글자 크기")
                 Text(
-                    "기본값은 대부분의 기기에서 문구가 한 줄에 들어가도록 맞춰 두었습니다. " +
-                        "화면이 작거나 시스템 글꼴이 크면 줄바꿈이 생길 수 있으니 그때 줄이세요.",
+                    "기기 설정의 글꼴 크기 위에 곱해집니다. " +
+                        "키웠을 때 문구가 줄바꿈되면 한 단계 줄이세요.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -172,11 +172,17 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * 글자 크기 단계.
+ *
+ * 기사 연령대를 감안해 전체를 한 단계씩 키웠다. 예전의 `보통`(1.00)이 지금의 `작게`이고,
+ * 예전의 `크게`(1.15)가 `보통`이며, 그보다 큰 단계를 하나 더 두었다.
+ * 0.80·0.90은 실제로 쓰이지 않아 없앴다.
+ */
 private val TEXT_SCALES = listOf(
-    "아주 작게" to 0.80f,
-    "작게" to 0.90f,
-    "보통" to 1.00f,
-    "크게" to 1.15f
+    "작게" to 1.00f,
+    "보통" to 1.15f,
+    "크게" to 1.30f
 )
 
 @Composable
