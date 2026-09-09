@@ -17,7 +17,9 @@ class MotionHistory {
         @JvmField val speedKmh: Float,
         @JvmField val longKmhPerSec: Float,
         @JvmField val verticalMps2: Float,
-        @JvmField val yawRateDps: Float
+        @JvmField val yawRateDps: Float,
+        /** 중력 방향 성분을 뺀 수평 가속도 크기. 좌표계 정렬 없이 얻는다. */
+        @JvmField val horizontalMps2: Float
     )
 
     private val samples = ArrayDeque<Sample>()
@@ -31,9 +33,12 @@ class MotionHistory {
         speedKmh: Float,
         longKmhPerSec: Float,
         verticalMps2: Float,
-        yawRateDps: Float
+        yawRateDps: Float,
+        horizontalMps2: Float
     ) {
-        samples.addLast(Sample(ts, speedKmh, longKmhPerSec, verticalMps2, yawRateDps))
+        samples.addLast(
+            Sample(ts, speedKmh, longKmhPerSec, verticalMps2, yawRateDps, horizontalMps2)
+        )
         val cutoff = ts - Constants.HISTORY_RETENTION_MS * 1_000_000L
         while (samples.isNotEmpty() && samples.first().ts < cutoff) samples.removeFirst()
     }
@@ -92,6 +97,18 @@ class MotionHistory {
         for (s in samples) {
             if (s.ts in from..to && abs(s.longKmhPerSec) > abs(best)) best = s.longKmhPerSec
         }
+        return best
+    }
+
+    /**
+     * [from, to] 구간의 수평 가속도 크기 피크 [m/s^2].
+     *
+     * 좌표계 정렬이 필요 없다. 종방향 가속의 상한이므로, 이 값이 GPS 판정값보다
+     * 한참 작으면 GPS 쪽이 틀린 것이다.
+     */
+    fun peakHorizontal(from: Long, to: Long): Float {
+        var best = 0f
+        for (s in samples) if (s.ts in from..to) best = max(best, s.horizontalMps2)
         return best
     }
 

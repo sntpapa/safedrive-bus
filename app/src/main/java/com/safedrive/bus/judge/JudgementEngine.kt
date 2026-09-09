@@ -20,6 +20,11 @@ data class JudgeInput(
     val verticalMps2: Float,
     /** 요레이트 [deg/s]. + = 좌회전 */
     val yawRateDps: Float,
+    /**
+     * 중력 방향 성분을 뺀 수평 가속도 크기 [m/s^2].
+     * 좌표계 정렬이 필요 없다. 종방향 가속의 상한으로 쓴다.
+     */
+    val horizontalMps2: Float,
     val latitude: Double,
     val longitude: Double,
     val gpsAccuracyM: Float,
@@ -129,7 +134,8 @@ class JudgementEngine(
             speedKmh = i.speedKmh,
             longKmhPerSec = i.longKmhPerSec,
             verticalMps2 = i.verticalMps2,
-            yawRateDps = i.yawRateDps
+            yawRateDps = i.yawRateDps,
+            horizontalMps2 = i.horizontalMps2
         )
         // 가감속과 과속은 GPS 속도만으로 판정하므로 좌표계 정렬을 기다리지 않는다.
         judgeLongitudinal(i)
@@ -377,11 +383,30 @@ class JudgementEngine(
         // 정렬이 끝나야 종방향 축이 존재한다. 정렬 전에는 피크가 항상 0이므로
         // 검사하면 모든 이벤트가 보류된다. 반드시 게이트를 함께 본다.
         val imuPeak = history.peakLongitudinal(windowFromNs, i.timestampNs)
-        val imuMismatch = applyBorderline &&
-            sign != 0 &&
-            i.gates.alignment.passed &&
+        val alignedMismatch = i.gates.alignment.passed &&
             imuPeak != 0f &&
             imuPeak * sign < abs(magnitude) * Constants.MIN_IMU_AGREEMENT_RATIO
+
+        // 정렬이 끝나지 않아도 쓸 수 있는 검증.
+        //
+        // 수평 가속도 크기는 중력 방향만 알면 구해지고, 중력은 정렬과 무관하게 항상 있다.
+        // 종방향 가속은 이 크기의 한 성분이므로 크기를 넘을 수 없다. 크기가 GPS 판정값보다
+        // 한참 작으면 GPS 쪽이 틀린 것이다.
+        //
+        // 이 검사는 한쪽으로만 틀린다. 크기는 종방향의 상한이므로, 크기가 작으면 종방향도
+        // 확실히 작다. 노면 진동은 크기를 키우는 방향이라 억제를 덜 하게 만든다.
+        // 즉 놓치는 일은 있어도 멀쩡한 이벤트를 지우지는 않는다.
+        //
+        // 실측(2026-09-09, 정렬이 살아 있던 구간)에서 급정지 세 건이 이랬다.
+        //   GPS 2.61 / 3.21 / 2.71 m/s²  vs  IMU 종방향 0.61 / 0.49 / 0.83 m/s²
+        // 0.5~0.8 m/s²는 승객이 느끼지 못하는 제동이다. 급정지가 아니다.
+        val horizPeak = history.peakHorizontal(windowFromNs, i.timestampNs)
+        val magnitudeMps2 = abs(magnitude) / 3.6f
+        val horizMismatch = !i.gates.alignment.passed &&
+            horizPeak > 0f &&
+            horizPeak < magnitudeMps2 * Constants.MIN_IMU_AGREEMENT_RATIO
+
+        val imuMismatch = applyBorderline && sign != 0 && (alignedMismatch || horizMismatch)
 
         // GPS 속도 잡음보다 충분히 크지 않으면 판정값을 신뢰할 수 없다.
         val sigma = i.speedAccuracyMps?.takeIf { it > 0f }?.let { it * 1.4142f * 3.6f }

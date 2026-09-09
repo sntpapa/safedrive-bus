@@ -429,6 +429,7 @@ class DrivingService : LifecycleService() {
                 longKmhPerSec = snap.longitudinalKmhPerSec,
                 verticalMps2 = vehicleMotion?.vertical ?: 0f,
                 yawRateDps = snap.yawRateDps,
+                horizontalMps2 = frame.horizontalAccelMps2,
                 latitude = snap.latitude,
                 longitude = snap.longitude,
                 gpsAccuracyM = snap.gpsAccuracyM,

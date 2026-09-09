@@ -6,7 +6,7 @@ plugins {
 }
 
 // 내려받은 파일만 보고 어떤 빌드인지 알 수 있어야 하므로 한 곳에서 관리한다.
-val appVersionName = "0.10.0"
+val appVersionName = "0.16.0"
 
 android {
     namespace = "com.safedrive.bus"
@@ -18,7 +18,7 @@ android {
         // 어차피 포그라운드 서비스가 필수이므로 26 미만은 지원하지 않는다.
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
+        versionCode = 13
         versionName = appVersionName
     }
 

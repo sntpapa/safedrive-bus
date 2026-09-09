@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.safedrive.bus.align.InvalidationRecord
 import com.safedrive.bus.core.Constants
 import com.safedrive.bus.gate.Gate
 import com.safedrive.bus.sensor.GravitySource
@@ -189,6 +190,44 @@ private fun AlignmentCard(state: TelemetrySnapshot) {
                     valueColor = WarnAmber
                 )
             }
+            if (a.invalidations.isNotEmpty()) {
+                InvalidationLog(a.invalidations)
+            }
+        }
+    }
+}
+
+/**
+ * 재보정이 언제·왜·어떤 값으로 일어났는지.
+ *
+ * 이 목록이 없으면 원인을 알 방법이 주행 중 진단 화면을 계속 들여다보는 것뿐인데
+ * 운전 중에는 불가능하다. 정차 후 이 카드 한 장이면 전부 확인된다.
+ *
+ * `속도`가 붙어 있는 이유는 주행 중 발생인지 정차·하차 후 발생인지 구분하기 위해서다.
+ * 실제로 이전 진단 캡처 두 건이 모두 하차 후여서 주행 중 값으로 쓸 수 없었다.
+ */
+@Composable
+private fun InvalidationLog(records: List<InvalidationRecord>) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "재보정 이력 (최근 %d건)".format(records.size),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        records.asReversed().forEach { r ->
+            Text(
+                "%s · %.0f km/h · %s".format(formatClock(r.wallMs), r.speedKmh, r.reason),
+                style = MaterialTheme.typography.labelSmall,
+                color = WarnAmber
+            )
+            Text(
+                "    변화율 %.0f°/s · 편차 %.0f° · 자이로 %.0f°/s".format(
+                    r.rateDps, r.deviationDeg, r.gyroDps
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

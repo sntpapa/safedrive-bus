@@ -353,7 +353,18 @@ class MainActivity : ComponentActivity() {
             repo.countsOf(effectiveTripId)
         }.collectAsStateWithLifecycle(emptyList())
         val summary: TripSummary? = trips.firstOrNull { it.id == effectiveTripId }
-            ?.let { TripSummary(it, counts) }
+            ?.let { trip ->
+                TripSummary(
+                    trip = trip,
+                    counts = counts,
+                    // 진행 중인 운행은 DB에 거리가 아직 없다. 실시간 값을 쓴다.
+                    liveDistanceM = if (
+                        trip.endedAtMs == null &&
+                        state.serviceRunning &&
+                        trip.id == state.tripId
+                    ) state.motion.distanceM else null
+                )
+            }
 
         var exportMessage by remember { mutableStateOf("") }
         var exportedUri by remember { mutableStateOf<Uri?>(null) }

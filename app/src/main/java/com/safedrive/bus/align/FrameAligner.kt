@@ -26,6 +26,25 @@ enum class AlignmentState {
     ALIGNED
 }
 
+/**
+ * 정렬이 깨진 한 건의 기록.
+ *
+ * 재보정 원인을 알려면 그 순간의 값이 필요한데, 주행 중에는 화면을 볼 수 없다.
+ * 남겨 두면 정차 후 진단 화면 한 장으로 전부 확인된다.
+ */
+data class InvalidationRecord(
+    val wallMs: Long,
+    val reason: String,
+    /** 그 시점 중력 방향 변화율 [deg/s] */
+    val rateDps: Float,
+    /** 그 시점 중력 방향 절대 편차 [deg] */
+    val deviationDeg: Float,
+    /** 그 시점 자이로 크기 [deg/s] */
+    val gyroDps: Float,
+    /** 그 시점 GPS 속도 [km/h]. 정차 중인지 주행 중인지 구분한다. */
+    val speedKmh: Float
+)
+
 data class AlignmentSnapshot(
     val state: AlignmentState = AlignmentState.WAITING_STATIONARY,
     /** 중력 확정 진행률 0..1 */
@@ -38,8 +57,10 @@ data class AlignmentSnapshot(
     val angleStdDeg: Double = Double.NaN,
     /** 보정 시점 대비 현재 중력 방향 편차(도) */
     val mountDeviationDeg: Float = 0f,
-    /** 중력 방향 변화율(도/초). 거치 이탈 1차 지표. */
+    /** 중력 방향 변화율(도/초). 진단 표시용. */
     val mountRateDps: Float = 0f,
+    /** 최근 재보정 이력. 최신이 뒤. */
+    val invalidations: List<InvalidationRecord> = emptyList(),
     val mountStable: Boolean = true,
     /** 마지막으로 정렬이 깨진 이유. UI 표시용. */
     val lastInvalidationReason: String = "",
@@ -84,8 +105,9 @@ data class VehicleMotion(
  *    GPS 속도 증감 부호로 방향을 정렬한 뒤 주성분(PCA)을 전방 축으로 삼는다.
  *    단위벡터의 산포행렬을 쓰기 때문에 큰 가속 한 번이 결과를 지배하지 않는다.
  *
- * 3) 거치 이탈 감지: 절대 각도만 쓰면 도로 경사(도심 최대 약 7도)와 제동 시 노즈다이브를
- *    이탈로 오인한다. 중력 방향 "변화율"을 1차 지표로, 절대 편차를 2차 지표로 쓴다.
+ * 3) 거치 이탈 감지: 중력 방향 절대 편차 30도와 비정상 각속도 200도/초를 쓴다.
+ *    변화율은 진단 표시용으로만 남긴다. 실차에서 차량 기동과 구분되지 않았다.
+ *    자세한 근거는 updateMountStability 주석.
  */
 class FrameAligner {
 
@@ -145,6 +167,9 @@ class FrameAligner {
 
     private var invalidationReason = ""
     private var invalidationCount = 0
+    private var lastGyroDps = 0f
+    private var lastSpeedKmh = 0f
+    private val invalidations = ArrayDeque<InvalidationRecord>()
 
     // --- 정차 판정 진단 ---
     private var lastAccelMag = 0f
@@ -185,6 +210,8 @@ class FrameAligner {
         gpsFresh: Boolean
     ): VehicleMotion? {
         val nowMs = SystemClock.elapsedRealtime()
+        lastGyroDps = Math.toDegrees(frame.gyro.norm.toDouble()).toFloat()
+        lastSpeedKmh = (gpsSpeedMps ?: 0f) * 3.6f
 
         updateMountStability(frame, nowMs)
         if (!mountStable || mountHeldUnstable(nowMs)) return null
@@ -240,7 +267,8 @@ class FrameAligner {
             accelMagnitude = lastAccelMag,
             gravitySamples = gravityCount,
             gravityStdDev = lastGravityStd,
-            stationaryBlockedBy = stationaryBlockedBy
+            stationaryBlockedBy = stationaryBlockedBy,
+            invalidations = invalidations.toList()
         )
     }
 
@@ -470,19 +498,35 @@ class FrameAligner {
         }
         mountDeviationDeg = angleBetweenDeg(ref, gUnit)
 
-        // 1차 지표: 중력 방향 변화율. 도로 경사 변화는 통상 5도/초를 넘지 않는다.
-        val rate = mountRateLpf.value
-        if (rate > Constants.MOUNT_GRAVITY_RATE_DPS) {
-            if (rateExceedSinceMs == 0L) rateExceedSinceMs = nowMs
-            if (nowMs - rateExceedSinceMs >= Constants.MOUNT_RATE_SUSTAIN_MS) {
-                invalidate(nowMs, "중력 방향 급변 %.0f°/s".format(rate))
-                return
-            }
-        } else {
-            rateExceedSinceMs = 0L
-        }
+        // 중력 방향 변화율은 무효화 사유로 쓰지 않는다. 진단 표시용으로만 남긴다.
+        //
+        // 원래는 이것이 1차 지표였다. 도로 경사 변화(5°/s 미만)와 폰 탈거(수십 °/s)를
+        // 변화율로 구분할 수 있다고 보았기 때문이다. 실차에서 틀렸다.
+        //
+        // 이 벡터는 GAME_ROTATION_VECTOR가 가속도계를 참조해 만든다. 버스가 좌회전하면
+        // 횡가속 3 m/s²가 중력과 합쳐져 겉보기 중력이 17° 기운다. 진입·이탈이 0.5초면
+        // 변화율이 수십 °/s가 된다. 거치 이탈이 아니라 차량 기동이다.
+        //
+        // 임계값을 25 -> 45로 올려도 시간당 재보정 빈도가 5.7 -> 5.6회로 그대로였다.
+        // 임계값 문제가 아니다.
+        //
+        // 결정적인 증거는 CSV다. 2026-09-09 운행(44.3km · 3시간 45분 연속)에서
+        // 정렬이 15:28에 마지막으로 성립한 뒤 17:43까지 2시간 15분 동안 한 번도
+        // 복구되지 않았다. 그 구간은 전부 주행 중이었다.
+        //
+        // 진단 화면에 찍힌 관측 피크(28°/s, 69°/s)는 하차 후 도보 중에 캡처한 것이라
+        // 주행 중 값으로 단정할 수 없다. 다만 주행 중에 반복 무효화가 일어난 것은
+        // 위 CSV로 확인된다.
+        //
+        // 재보정이 걸릴 때마다 전방축 샘플이 리셋되어 3시간 34분을 달려도 0/300이었다.
+        // 그동안 급좌우회전·급U턴은 한 건도 판정되지 않았고, IMU 종가속도 교차검증도
+        // 정렬을 요구하므로 가감속 오탐이 걸러지지 않았다.
+        //
+        // 절대 편차가 진짜 지표다. 폰을 거치대에서 빼면 방향이 완전히 달라져 즉시
+        // 30°를 넘지만, 차량 기동으로는 17° 수준이라 넘지 않는다.
+        rateExceedSinceMs = 0L
 
-        // 2차 지표: 절대 편차. 경사 7도 + 노즈다이브 3도를 크게 상회하는 값만 걸린다.
+        // 1차 지표: 절대 편차. 경사 7도 + 노즈다이브 3도를 크게 상회하는 값만 걸린다.
         if (mountDeviationDeg > Constants.MOUNT_DEVIATION_MAX_DEG) {
             if (deviationExceedSinceMs == 0L) deviationExceedSinceMs = nowMs
             if (nowMs - deviationExceedSinceMs >= Constants.MOUNT_DEVIATION_SUSTAIN_MS) {
@@ -506,6 +550,19 @@ class FrameAligner {
     private fun invalidate(nowMs: Long, reason: String) {
         invalidationReason = reason
         invalidationCount++
+        // 언제·왜·어떤 값으로 깨졌는지 남긴다. 이게 없으면 재보정 원인을 알 방법이
+        // 주행 중 진단 화면을 계속 들여다보는 것뿐이다. 운전 중에는 불가능하다.
+        invalidations.addLast(
+            InvalidationRecord(
+                wallMs = System.currentTimeMillis(),
+                reason = reason,
+                rateDps = mountRateLpf.value.toFloat(),
+                deviationDeg = mountDeviationDeg,
+                gyroDps = lastGyroDps,
+                speedKmh = lastSpeedKmh
+            )
+        )
+        while (invalidations.size > MAX_INVALIDATION_RECORDS) invalidations.removeFirst()
         reset()
         // reset()은 내부 상태만 되돌린다. 이탈 직후 일정 시간은 게이트를 계속 막아
         // 화면에 "재보정 중"이 확실히 보이도록 한다.
@@ -516,6 +573,9 @@ class FrameAligner {
     companion object {
         /** 이탈 판정 후 게이트를 강제로 막아 두는 시간. */
         private const val MOUNT_UNSTABLE_HOLD_MS = 2000L
+
+        /** 진단 화면에 보여 줄 재보정 이력 개수. 한 화면에 들어가는 만큼만. */
+        private const val MAX_INVALIDATION_RECORDS = 12
     }
 
     // ------------------------------------------------------------------

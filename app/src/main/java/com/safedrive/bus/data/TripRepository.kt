@@ -9,9 +9,17 @@ import kotlinx.coroutines.flow.Flow
 /** 운행 요약 1건. 리포트 화면과 CSV가 함께 쓴다. */
 data class TripSummary(
     val trip: TripEntity,
-    val counts: List<TypeCount>
+    val counts: List<TypeCount>,
+    /**
+     * 진행 중인 운행의 실시간 주행거리 [m]. 끝난 운행이면 null.
+     *
+     * `distance_m`은 마감할 때만 기록되므로, 진행 중인 운행의 요약에서는 거리가 항상
+     * 0으로 보였다. 100km 환산도 "주행거리가 1km 미만"이라며 사라졌다.
+     * 실측에서 주행 화면은 21.8km인데 요약은 0.00km로 나왔다.
+     */
+    val liveDistanceM: Double? = null
 ) {
-    val distanceKm: Double get() = trip.distanceM / 1000.0
+    val distanceKm: Double get() = (liveDistanceM ?: trip.distanceM) / 1000.0
     val durationMs: Long
         get() = (trip.endedAtMs ?: System.currentTimeMillis()) - trip.startedAtMs
 

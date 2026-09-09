@@ -27,4 +27,21 @@ data class SensorFrame(
 ) {
     /** 중력을 제거한 선형가속도 [m/s^2]. 경사로에서도 중력 성분이 정확히 빠진다. */
     val linearAccel: Vec3 get() = accel - gravity
+
+    /**
+     * 중력 방향 성분을 뺀 수평 가속도의 크기 [m/s^2].
+     *
+     * 차량 좌표계 정렬이 **필요 없다.** 중력 방향만 알면 되고 중력은 항상 있다.
+     * 종방향 가속은 이 크기의 한 성분이므로 이 값을 넘을 수 없다.
+     * 노면 진동은 대부분 수직 성분이라 여기서 빠진다.
+     */
+    val horizontalAccelMps2: Float
+        get() {
+            val g = gravity
+            val gn = g.norm
+            if (gn < 0.5f) return linearAccel.norm
+            val u = g * (1f / gn)
+            val lin = linearAccel
+            return (lin - u * (lin dot u)).norm
+        }
 }
