@@ -61,6 +61,51 @@ class AppPrefs(context: Context) {
         get() = sp.getBoolean(KEY_KEEP_AWAKE, false)
         set(v) = sp.edit().putBoolean(KEY_KEEP_AWAKE, v).apply()
 
+    // ------------------------------------------------------------------
+    // 경고음
+    // ------------------------------------------------------------------
+
+    /**
+     * 음성 앞에 짧은 경고음을 낼지.
+     *
+     * 버스 실내 소음은 100~300Hz 저음에 몰려 있어 목소리가 묻힌다. 2.2kHz 순음은
+     * 그 대역을 피하므로 잘 뚫고 나가고, 오디오 경로를 여는 역할도 겸한다.
+     */
+    var alertToneEnabled: Boolean
+        get() = sp.getBoolean(KEY_TONE_ON, true)
+        set(v) = sp.edit().putBoolean(KEY_TONE_ON, v).apply()
+
+    /**
+     * 경고음 크기 0~1.
+     *
+     * 처음에는 0.9 고정이었는데 실차에서 "너무 크다"는 보고를 받았다.
+     * 기본값은 `작게`로 낮춘다. 값은 설정 화면의 선택지와 같아야 칩이 선택돼 보인다.
+     */
+    var alertToneVolume: Float
+        get() = sp.getFloat(KEY_TONE_VOL, 0.25f).coerceIn(0f, 1f)
+        set(v) = sp.edit().putFloat(KEY_TONE_VOL, v.coerceIn(0f, 1f)).apply()
+
+    /**
+     * 음성 경고를 낼지.
+     *
+     * 끄면 알림음과 진동만 남는다. 소음 속에서는 "삐" 한 번이 "급감속"보다 확실하고,
+     * 무슨 유형이었는지는 정차 리뷰에서 확인할 수 있다.
+     * 둘 다 끄면 진동만 남으므로 알림음이 꺼져 있을 때는 이것을 끌 수 없게 한다.
+     */
+    var speechEnabled: Boolean
+        get() = sp.getBoolean(KEY_SPEECH_ON, true)
+        set(v) = sp.edit().putBoolean(KEY_SPEECH_ON, v).apply()
+
+    /** 음성 높낮이. 높을수록 엔진 소음 대역을 벗어나 잘 들린다. */
+    var speechPitch: Float
+        get() = sp.getFloat(KEY_TTS_PITCH, 1.15f).coerceIn(0.5f, 2.0f)
+        set(v) = sp.edit().putFloat(KEY_TTS_PITCH, v.coerceIn(0.5f, 2.0f)).apply()
+
+    /** 음성 속도. 경고는 짧고 즉시 끝나야 하므로 기본이 1.0보다 빠르다. */
+    var speechRate: Float
+        get() = sp.getFloat(KEY_TTS_RATE, 1.1f).coerceIn(0.5f, 2.0f)
+        set(v) = sp.edit().putFloat(KEY_TTS_RATE, v.coerceIn(0.5f, 2.0f)).apply()
+
     /**
      * 글자 크기 배율.
      *
@@ -130,6 +175,11 @@ class AppPrefs(context: Context) {
         const val KEY_S_BEAT = "session_heartbeat"
         const val KEY_S_RESTART = "session_restart_count"
         const val KEY_TEXT_SCALE = "text_scale"
+        const val KEY_TONE_ON = "alert_tone_on"
+        const val KEY_SPEECH_ON = "speech_on"
+        const val KEY_TONE_VOL = "alert_tone_volume"
+        const val KEY_TTS_PITCH = "speech_pitch"
+        const val KEY_TTS_RATE = "speech_rate"
         const val KEY_AUTO_START = "auto_start"
         const val KEY_USER_STOPPED = "user_stopped"
         const val KEY_DIAG = "diagnostic_recording"

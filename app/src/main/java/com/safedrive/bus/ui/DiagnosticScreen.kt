@@ -18,6 +18,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -43,7 +44,11 @@ import com.safedrive.bus.service.TelemetrySnapshot
  * 주행 탭에서 여기로 옮겨 왔다.
  */
 @Composable
-fun DiagnosticScreen(state: TelemetrySnapshot) {
+fun DiagnosticScreen(
+    state: TelemetrySnapshot,
+    reportMessage: String,
+    onSaveReport: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -56,6 +61,29 @@ fun DiagnosticScreen(state: TelemetrySnapshot) {
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold
         )
+
+        // 스크린샷 대신 파일로 남긴다. 캡처하려고 폰을 거치대에서 떼면 거치 편차가 올라가
+        // 재보정이 걸리고, 운행을 끝낸 뒤 찍으면 값이 초기화돼 있다. 둘 다 실측에서 겪었다.
+        Card {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionTitle("진단 파일")
+                Text(
+                    "운행을 종료하면 이 화면의 값과 이번 운행 CSV가 " +
+                        "다운로드/SafeDrive 폴더에 자동으로 저장됩니다. " +
+                        "스크린샷은 필요 없습니다.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = onSaveReport,
+                    enabled = state.serviceRunning,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("운행 중 지금 저장") }
+                if (reportMessage.isNotEmpty()) {
+                    Text(reportMessage, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
 
         if (!state.serviceRunning) {
             Card(
@@ -181,6 +209,22 @@ private fun AlignmentCard(state: TelemetrySnapshot) {
                 if (a.angleStdDeg.isNaN()) "-"
                 else "%.1f° / 기준 %.1f°".format(a.angleStdDeg, Constants.FWD_MAX_ANGLE_STD_DEG)
             )
+            if (a.forwardSignSamples > 0) {
+                val pct = a.forwardSignAgreement * 100
+                KeyValue(
+                    "전방축 부호 일치",
+                    "%.0f%% · %d표본 · %s%s".format(
+                        pct, a.forwardSignSamples,
+                        if (a.forwardSignTrusted) "신뢰" else "불신",
+                        if (a.forwardFlipCount > 0) " · 뒤집음 ${a.forwardFlipCount}회" else ""
+                    ),
+                    valueColor = if (a.forwardSignTrusted) {
+                        PassGreen
+                    } else {
+                        WarnAmber
+                    }
+                )
+            }
             KeyValue("거치 편차", "%.1f°".format(a.mountDeviationDeg))
             KeyValue("중력 방향 변화율", "%.1f°/s".format(a.mountRateDps))
             if (a.invalidationCount > 0) {
@@ -371,7 +415,16 @@ private fun SpeedLimitCard(state: TelemetrySnapshot) {
                 },
                 valueColor = if (state.judge.overspeedActive) BlockRed else null
             )
-            KeyValue("매칭 실패 샘플", "%d".format(state.judge.unmatchedLimitSamples))
+            // 프레임 카운터라 초당 30회 넘게 오른다. 횟수만 보면 크기를 해석할 수 없어
+            // 비율로 보여 준다(실측: 6시간 37분 운행에 765,570).
+            KeyValue(
+                "매칭 실패",
+                if (state.judge.limitSampleTotal <= 0L) "-"
+                else "%.0f%% · %d/%d".format(
+                    100.0 * state.judge.unmatchedLimitSamples / state.judge.limitSampleTotal,
+                    state.judge.unmatchedLimitSamples, state.judge.limitSampleTotal
+                )
+            )
         }
     }
 }

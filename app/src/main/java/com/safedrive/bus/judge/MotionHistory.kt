@@ -19,7 +19,11 @@ class MotionHistory {
         @JvmField val verticalMps2: Float,
         @JvmField val yawRateDps: Float,
         /** 중력 방향 성분을 뺀 수평 가속도 크기. 좌표계 정렬 없이 얻는다. */
-        @JvmField val horizontalMps2: Float
+        @JvmField val horizontalMps2: Float,
+        /** 수평 가속도 벡터를 저역통과한 뒤의 크기. 진동이 상쇄된 값. */
+        @JvmField val horizontalLpfMps2: Float,
+        /** 이 시점의 GPS 속도가 정지 잡음 억제로 0으로 눌렸는지. */
+        @JvmField val speedSuppressed: Boolean
     )
 
     private val samples = ArrayDeque<Sample>()
@@ -34,10 +38,15 @@ class MotionHistory {
         longKmhPerSec: Float,
         verticalMps2: Float,
         yawRateDps: Float,
-        horizontalMps2: Float
+        horizontalMps2: Float,
+        horizontalLpfMps2: Float,
+        speedSuppressed: Boolean
     ) {
         samples.addLast(
-            Sample(ts, speedKmh, longKmhPerSec, verticalMps2, yawRateDps, horizontalMps2)
+            Sample(
+                ts, speedKmh, longKmhPerSec, verticalMps2, yawRateDps,
+                horizontalMps2, horizontalLpfMps2, speedSuppressed
+            )
         )
         val cutoff = ts - Constants.HISTORY_RETENTION_MS * 1_000_000L
         while (samples.isNotEmpty() && samples.first().ts < cutoff) samples.removeFirst()
@@ -110,6 +119,47 @@ class MotionHistory {
         var best = 0f
         for (s in samples) if (s.ts in from..to) best = max(best, s.horizontalMps2)
         return best
+    }
+
+    /**
+     * [from, to] 구간의 저역통과 수평 가속도 크기 피크 [m/s²].
+     *
+     * 원시 크기 피크는 진동에 부풀려져 대체 검증이 거의 걸리지 않았다(실측 2026-09-14:
+     * 원시 피크가 IMU 종가속 평균의 2.4~18.4배). 필터가 선형이므로 종방향 성분의 상한이라는
+     * 성질은 그대로 유지된다.
+     */
+    fun peakHorizontalLpf(from: Long, to: Long): Float {
+        var best = 0f
+        for (s in samples) if (s.ts in from..to) best = max(best, s.horizontalLpfMps2)
+        return best
+    }
+
+    /**
+     * [from, to] 구간의 종방향 가감속 **평균** [km/h/s].
+     *
+     * 교차검증에 피크(절대값 최대)를 쓰면 노면 진동 스파이크가 진짜 신호를 덮는다.
+     * 실측(2026-09-13)에서 정렬 완료 구간 IMU 피크 크기의 중앙값이 0.55~0.62 m/s²인데
+     * 최대는 2.9 m/s²까지 튀었고, 급가속 이벤트의 47~51%에서 부호가 반대로 나왔다.
+     *
+     * 평균은 진동이 상쇄된다. GPS 판정값도 1초 창의 평균 변화율이므로 같은 것끼리
+     * 비교하게 된다는 점에서도 맞다.
+     */
+    fun meanLongitudinal(from: Long, to: Long): Float {
+        var sum = 0f
+        var n = 0
+        for (s in samples) if (s.ts in from..to) { sum += s.longKmhPerSec; n++ }
+        return if (n == 0) 0f else sum / n
+    }
+
+    /**
+     * [from, to] 구간에 정지 잡음 억제로 속도가 0으로 눌린 샘플이 있었는지.
+     *
+     * 눌린 구간에서 벗어나는 순간 도플러 지연까지 겹쳐 속도가 한꺼번에 올라온다.
+     * 그 1초 차분은 실제 가속이 아니라 억제가 풀린 계단이다.
+     */
+    fun hadSuppressedSpeed(from: Long, to: Long): Boolean {
+        for (s in samples) if (s.ts in from..to && s.speedSuppressed) return true
+        return false
     }
 
     /** [from, to] 구간의 수직 가속도 절대 피크. 노면 충격 판단에 쓴다. */

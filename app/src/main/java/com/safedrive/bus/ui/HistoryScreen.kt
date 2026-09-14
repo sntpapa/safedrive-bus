@@ -249,9 +249,13 @@ private fun SummaryCard(s: TripSummary) {
                 valueColor = if (s.trip.dataGapMs > 0) WarnAmber else PassGreen
             )
             KeyValue("전달 지연", formatDuration(s.trip.stallMs))
+            // 프레임 카운터를 그대로 보여 주면 "765,570 샘플" 같은 수가 뜨는데
+            // 기사도 개발자도 그 크기를 해석할 수 없다. 시도 대비 비율로 보여 준다.
+            val limitTotal = s.trip.limitSampleTotal
             KeyValue(
                 "과속 판정 보류",
-                "%d 샘플".format(s.trip.unmatchedLimitSamples),
+                if (limitTotal <= 0L) "-"
+                else "%.0f%% 구간".format(100.0 * s.trip.unmatchedLimitSamples / limitTotal),
                 valueColor = if (s.trip.unmatchedLimitSamples > 0) WarnAmber else null
             )
 

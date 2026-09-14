@@ -256,14 +256,9 @@ private fun EventTiles(state: TelemetrySnapshot) {
                 }
             }
 
-            val suppressed = state.totalEvents - state.totalWarned
-            if (suppressed > 0) {
-                Text(
-                    "%d건은 측정을 신뢰할 수 없어 경고 없이 기록만 했습니다.".format(suppressed),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = WarnAmber
-                )
-            }
+            // 보류 건수는 여기에 쓰지 않는다. 기사에게 필요한 것은
+            // "오늘 몇 번 혼났나"이고, 보류 건수는 그 판단을 흐린다.
+            // 전체 건수와 보류 사유는 이력 탭과 CSV, 진단 탭에 그대로 남는다.
         }
     }
 }
@@ -275,7 +270,12 @@ private fun EventTile(
     km: Double,
     modifier: Modifier = Modifier
 ) {
-    val count = spec.types.sumOf { state.eventCounts[it] ?: 0 }
+    // 실제로 경고가 나간 건수만 센다.
+    //
+    // 예전에는 판정에 걸린 전체 건수를 보여 줬다. 그러면 `급감속 41`처럼 뜨는데
+    // 실제 경고는 1건이었다. 기사는 이것을 "내가 41번 거칠게 밟았다"로 읽는다.
+    // 사실이 아니고, 공단 eTAS 점수도 경고 기준이라 비교도 되지 않는다.
+    val count = spec.types.sumOf { state.warnedCounts[it] ?: 0 }
     val active = count > 0
     val color = when {
         !active -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)

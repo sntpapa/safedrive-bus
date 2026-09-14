@@ -23,6 +23,22 @@ data class DrivingEvent(
     val judgedValue: Float,
     /** 판정 창의 최대 IMU 가감속 [km/h/s]. 정렬 전에는 0이다. 참고용. */
     val peakKmhPerSec: Float,
+    /**
+     * 판정 창의 **평균** IMU 가감속 [km/h/s]. 교차검증에 실제로 쓰는 값이다.
+     * 피크와 나란히 저장해야 어느 쪽이 맞는지 다음 운행에서 판단할 수 있다.
+     */
+    val meanKmhPerSec: Float,
+    /**
+     * 판정 창의 수평 가속도 크기 피크 [m/s²]. 정렬이 없을 때의 대체 검증에 쓴다.
+     * 이 값이 없으면 폴백이 왜 걸리지 않았는지 알 수 없다.
+     */
+    val horizontalPeakMps2: Float,
+    /** 판정 창의 저역통과 수평 가속도 크기 피크 [m/s²]. 정렬 전 대체 검증에 실제로 쓴 값. */
+    val horizontalLpfPeakMps2: Float,
+    /** 판정 시점에 전방축 부호를 믿고 있었는지. 어느 검증 경로를 탔는지 가리는 데 쓴다. */
+    val forwardSignTrusted: Boolean,
+    /** 판정 시점의 전방축 부호 일치율. 표본이 없으면 NaN. */
+    val forwardSignAgreement: Float,
     /** 발생 시점 GPS 속도정확도 [m/s]. 저속 오탐을 가려내는 데 쓴다. */
     val speedAccuracyMps: Float?,
     /** 회전 유형일 때 누적 회전각(도). 그 외 0. */
@@ -34,6 +50,10 @@ data class DrivingEvent(
      */
     val thresholdValue: Float,
     val speedLimitKmh: Double?,
+    /** 매칭된 링크의 도로명. 과속 오탐의 원인이 오매칭인지 가리는 데 쓴다. */
+    val roadName: String?,
+    /** 매칭된 링크까지의 거리 [m]. */
+    val matchDistanceM: Double?,
     val latitude: Double,
     val longitude: Double,
     val gpsAccuracyM: Float,

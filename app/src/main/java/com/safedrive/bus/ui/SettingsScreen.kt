@@ -56,6 +56,17 @@ fun SettingsScreen(
     onToggleKeepAwake: (Boolean) -> Unit,
     textScale: Float,
     onTextScaleChange: (Float) -> Unit,
+    toneEnabled: Boolean,
+    onToggleTone: (Boolean) -> Unit,
+    speechEnabled: Boolean,
+    onToggleSpeech: (Boolean) -> Unit,
+    toneVolume: Float,
+    onToneVolumeChange: (Float) -> Unit,
+    speechPitch: Float,
+    onSpeechPitchChange: (Float) -> Unit,
+    speechRate: Float,
+    onSpeechRateChange: (Float) -> Unit,
+    onPreviewAlert: () -> Unit,
     onStartService: () -> Unit,
     onStopService: () -> Unit,
     onAddZone: (name: String, lat: Double, lon: Double, radiusM: Double, limitKmh: Double) -> Unit,
@@ -137,6 +148,58 @@ fun SettingsScreen(
 
         Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle("경고음")
+                Text(
+                    "버스 실내 소음은 낮은 음에 몰려 있어 목소리가 묻힙니다. " +
+                        "음성 앞의 짧은 \"삐\" 소리가 그 대역을 피해 잘 들립니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                ToggleRow(
+                    "알림음 먼저",
+                    "음성 앞에 짧은 소리를 냅니다",
+                    toneEnabled,
+                    onToggleTone
+                )
+                if (toneEnabled) {
+                    ChipRow("알림음 크기", TONE_VOLUMES, toneVolume, onToneVolumeChange)
+                }
+                ToggleRow(
+                    "음성 경고",
+                    if (toneEnabled) {
+                        "끄면 알림음과 진동만 나갑니다"
+                    } else {
+                        "알림음이 꺼져 있어 이것까지 끄면 진동만 남습니다"
+                    },
+                    speechEnabled,
+                    onToggleSpeech
+                )
+                if (speechEnabled) {
+                    ChipRow("음성 높낮이", SPEECH_PITCHES, speechPitch, onSpeechPitchChange)
+                    ChipRow("음성 속도", SPEECH_RATES, speechRate, onSpeechRateChange)
+                }
+
+                OutlinedButton(onClick = onPreviewAlert, modifier = Modifier.fillMaxWidth()) {
+                    Text("시험 재생")
+                }
+                Text(
+                    if (state.serviceRunning) {
+                        "\"급감속\"이 들립니다. 운행 중 정차했을 때 눌러 보세요."
+                    } else {
+                        "수집이 정지된 상태에서는 들리지 않습니다."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (state.serviceRunning) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        WarnAmber
+                    }
+                )
+            }
+        }
+
+        Card {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionTitle("글자 크기")
                 Text(
                     "기기 설정의 글꼴 크기 위에 곱해집니다. " +
@@ -179,6 +242,45 @@ fun SettingsScreen(
  * 예전의 `크게`(1.15)가 `보통`이며, 그보다 큰 단계를 하나 더 두었다.
  * 0.80·0.90은 실제로 쓰이지 않아 없앴다.
  */
+/** 라벨과 값의 목록에서 칩을 만든다. 글자 크기·경고음 설정이 같은 모양을 쓴다. */
+@Composable
+private fun ChipRow(
+    title: String,
+    options: List<Pair<String, Float>>,
+    value: Float,
+    onChange: (Float) -> Unit
+) {
+    Text(title, style = MaterialTheme.typography.labelMedium)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (label, v) ->
+            ScaleChip(
+                label = label,
+                selected = kotlin.math.abs(value - v) < 0.01f,
+                modifier = Modifier.weight(1f)
+            ) { onChange(v) }
+        }
+    }
+}
+
+private val TONE_VOLUMES = listOf(
+    "아주 작게" to 0.10f,
+    "작게" to 0.25f,
+    "보통" to 0.45f,
+    "크게" to 0.80f
+)
+
+private val SPEECH_PITCHES = listOf(
+    "낮게" to 1.00f,
+    "보통" to 1.15f,
+    "높게" to 1.35f
+)
+
+private val SPEECH_RATES = listOf(
+    "느리게" to 0.95f,
+    "보통" to 1.10f,
+    "빠르게" to 1.30f
+)
+
 private val TEXT_SCALES = listOf(
     "작게" to 1.00f,
     "보통" to 1.15f,

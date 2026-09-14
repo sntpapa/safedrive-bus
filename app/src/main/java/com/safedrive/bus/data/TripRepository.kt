@@ -58,7 +58,8 @@ class TripRepository(context: Context) {
         dataGapMs: Long,
         stallMs: Long,
         gapCount: Int,
-        unmatchedLimitSamples: Long
+        unmatchedLimitSamples: Long,
+        limitSampleTotal: Long
     ) {
         val trip = tripDao.byId(tripId) ?: return
 
@@ -76,7 +77,8 @@ class TripRepository(context: Context) {
                 dataGapMs = dataGapMs,
                 stallMs = stallMs,
                 gapCount = gapCount,
-                unmatchedLimitSamples = unmatchedLimitSamples
+                unmatchedLimitSamples = unmatchedLimitSamples,
+                limitSampleTotal = limitSampleTotal
             )
         )
     }
@@ -89,11 +91,18 @@ class TripRepository(context: Context) {
             speedKmh = e.speedKmh,
             judgedValue = e.judgedValue,
             peakKmhPerSec = e.peakKmhPerSec,
+            meanKmhPerSec = e.meanKmhPerSec,
+            horizPeakMps2 = e.horizontalPeakMps2,
+            horizLpfPeakMps2 = e.horizontalLpfPeakMps2,
+            signTrusted = e.forwardSignTrusted,
+            signAgreement = e.forwardSignAgreement.takeUnless { it.isNaN() },
             speedAccuracyMps = e.speedAccuracyMps,
             turnAngleDeg = e.turnAngleDeg,
             turnDirection = e.turnDirection.name,
             thresholdValue = e.thresholdValue,
             speedLimitKmh = e.speedLimitKmh,
+            roadName = e.roadName,
+            matchDistanceM = e.matchDistanceM,
             latitude = e.latitude,
             longitude = e.longitude,
             gpsAccuracyM = e.gpsAccuracyM,
@@ -126,6 +135,11 @@ class TripRepository(context: Context) {
         tripDao.byId(tripId)?.endedAtMs == null
 
     suspend fun eventsSince(sinceMs: Long): List<EventEntity> = eventDao.since(sinceMs)
+
+    /** 빈 운행으로 지워졌으면 null. */
+    suspend fun tripById(tripId: Long): TripEntity? = tripDao.byId(tripId)
+
+    suspend fun eventListOf(tripId: Long): List<EventEntity> = eventDao.listByTrip(tripId)
 
     /**
      * 남길 가치가 없는 운행인지.

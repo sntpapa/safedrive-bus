@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.safedrive.bus.core.Constants
 import com.safedrive.bus.data.CsvExporter
+import com.safedrive.bus.data.TripReportExporter
 import com.safedrive.bus.data.SpeedZoneEntity
 import com.safedrive.bus.data.TripRepository
 import com.safedrive.bus.data.TripSummary
@@ -319,6 +320,11 @@ class MainActivity : ComponentActivity() {
         var textScale by remember { mutableStateOf(prefs.textScale) }
         var diagnostic by remember { mutableStateOf(prefs.diagnosticRecording) }
         var keepAwake by remember { mutableStateOf(prefs.keepAwake) }
+        var toneEnabled by remember { mutableStateOf(prefs.alertToneEnabled) }
+        var speechEnabled by remember { mutableStateOf(prefs.speechEnabled) }
+        var toneVolume by remember { mutableStateOf(prefs.alertToneVolume) }
+        var speechPitch by remember { mutableStateOf(prefs.speechPitch) }
+        var speechRate by remember { mutableStateOf(prefs.speechRate) }
         var reviewOpen by remember { mutableStateOf(false) }
         var reviewRange by remember { mutableStateOf(ReviewRange.SEGMENT) }
 
@@ -367,6 +373,7 @@ class MainActivity : ComponentActivity() {
             }
 
         var exportMessage by remember { mutableStateOf("") }
+        var reportMessage by remember { mutableStateOf("") }
         var exportedUri by remember { mutableStateOf<Uri?>(null) }
         var confirmExit by remember { mutableStateOf(false) }
 
@@ -512,6 +519,32 @@ class MainActivity : ComponentActivity() {
                                 prefs.textScale = it
                                 textScale = it
                             },
+                            toneEnabled = toneEnabled,
+                            onToggleTone = {
+                                prefs.alertToneEnabled = it
+                                toneEnabled = it
+                            },
+                            speechEnabled = speechEnabled,
+                            onToggleSpeech = {
+                                prefs.speechEnabled = it
+                                speechEnabled = it
+                            },
+                            toneVolume = toneVolume,
+                            onToneVolumeChange = {
+                                prefs.alertToneVolume = it
+                                toneVolume = it
+                            },
+                            speechPitch = speechPitch,
+                            onSpeechPitchChange = {
+                                prefs.speechPitch = it
+                                speechPitch = it
+                            },
+                            speechRate = speechRate,
+                            onSpeechRateChange = {
+                                prefs.speechRate = it
+                                speechRate = it
+                            },
+                            onPreviewAlert = { DrivingService.previewAlert(this@MainActivity) },
                             onStartService = startService,
                             // 정지 표시를 남기지 않으면 자동 시작이 곧바로 다시 켠다.
                             // 주행 화면·알림과 달리 이 경로에만 표시가 빠져 있었다.
@@ -537,7 +570,32 @@ class MainActivity : ComponentActivity() {
                             }
                         )
 
-                        Tab.DIAGNOSTIC -> DiagnosticScreen(state)
+                        Tab.DIAGNOSTIC -> DiagnosticScreen(
+                            state = state,
+                            reportMessage = reportMessage,
+                            onSaveReport = {
+                                scope.launch {
+                                    val snap = Telemetry.state.value
+                                    val r = withContext(Dispatchers.IO) {
+                                        // 스냅샷에 운행 번호가 아직 안 실렸으면 열려 있는 최신 운행을 쓴다.
+                                        val id = snap.tripId.takeIf { it != 0L }
+                                            ?: repo.latestTrip()?.takeIf { it.endedAtMs == null }?.id
+                                            ?: 0L
+                                        TripReportExporter.save(
+                                            applicationContext, repo, id, snap,
+                                            TripReportExporter.Trigger.MANUAL,
+                                            liveDistanceM = snap.motion.distanceM
+                                        )
+                                    }
+                                    reportMessage = when {
+                                        r == null -> "저장에 실패했습니다."
+                                        r.report.fallbackReason != null ->
+                                            r.report.fallbackReason + " · " + r.report.displayPath
+                                        else -> "저장됨: ${r.report.displayPath}"
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
 

@@ -41,8 +41,14 @@ object CsvExporter {
 
     private val HEADER = listOf(
         "발생시각", "유형", "속도_kmh", "판정값", "임계값",
-        "IMU피크_kmh_per_s", "회전각_deg", "회전방향",
-        "제한속도_kmh", "위도", "경도", "GPS정확도_m", "속도정확도_mps",
+        // IMU평균이 교차검증에 실제로 쓰는 값이고, 피크는 참고용이다.
+        // 수평피크는 정렬이 없을 때의 대체 검증값이다. 셋을 나란히 남겨야
+        // 어느 억제가 왜 걸렸는지(혹은 왜 안 걸렸는지) 다음 운행에서 판단할 수 있다.
+        "IMU평균_kmh_per_s", "IMU피크_kmh_per_s", "수평피크_mps2", "수평LPF피크_mps2",
+        "부호신뢰", "부호일치율",
+        "회전각_deg", "회전방향",
+        "제한속도_kmh", "매칭도로", "매칭거리_m",
+        "위도", "경도", "GPS정확도_m", "속도정확도_mps",
         "게이트_보정", "게이트_GPS", "게이트_연속성", "게이트_거치",
         "경고발생", "보류사유"
     ).joinToString(",")
@@ -51,40 +57,62 @@ object CsvExporter {
         val since = System.currentTimeMillis() - Constants.HISTORY_DAYS * 24L * 60 * 60 * 1000
         val events = repo.eventsSince(since)
         val name = "safedrive_${fileStamp.format(Date())}.csv"
+        return saveToDownloads(context, name, "text/csv") { writeEvents(it, events) }
+    }
 
+    /**
+     * 다운로드 폴더에 파일 하나를 쓴다. 운행 리포트도 이 경로를 함께 쓴다.
+     *
+     * @param subDir 다운로드 아래 하위 폴더. null이면 다운로드 바로 아래.
+     */
+    internal fun saveToDownloads(
+        context: Context,
+        name: String,
+        mime: String,
+        subDir: String? = null,
+        writer: (OutputStream) -> Unit
+    ): ExportResult? {
         // 안드로이드 10부터는 MediaStore로 다운로드 폴더에 바로 쓸 수 있다. 권한이 필요 없다.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            writeViaMediaStore(context, name, events)?.let { return it }
+            writeViaMediaStore(context, name, mime, subDir, writer)?.let { return it }
         } else {
-            writeToPublicDownloads(name, events)?.let { return it }
+            writeToPublicDownloads(name, subDir, writer)?.let { return it }
         }
 
         // 실패하면 앱 전용 폴더로 대체한다. 최소한 공유로는 꺼낼 수 있다.
-        return writeToAppDir(context, name, events)
+        return writeToAppDir(context, name, subDir, writer)
     }
+
+    private fun displayDir(subDir: String?): String =
+        "다운로드/" + (subDir?.let { "$it/" } ?: "")
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun writeViaMediaStore(
         context: Context,
         name: String,
-        events: List<EventEntity>
+        mime: String,
+        subDir: String?,
+        writer: (OutputStream) -> Unit
     ): ExportResult? = try {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-            put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            put(
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                Environment.DIRECTORY_DOWNLOADS + (subDir?.let { "/$it" } ?: "")
+            )
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
         if (uri == null) {
             null
         } else {
-            resolver.openOutputStream(uri)?.use { write(it, events) }
+            resolver.openOutputStream(uri)?.use { writer(it) }
             values.clear()
             values.put(MediaStore.MediaColumns.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
-            ExportResult("다운로드/$name", uri)
+            ExportResult(displayDir(subDir) + name, uri)
         }
     } catch (e: Exception) {
         Log.e(TAG, "MediaStore 저장 실패", e)
@@ -92,11 +120,16 @@ object CsvExporter {
     }
 
     @Suppress("DEPRECATION")
-    private fun writeToPublicDownloads(name: String, events: List<EventEntity>): ExportResult? = try {
-        val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    private fun writeToPublicDownloads(
+        name: String,
+        subDir: String?,
+        writer: (OutputStream) -> Unit
+    ): ExportResult? = try {
+        val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val dir = if (subDir == null) root else File(root, subDir)
         if (!dir.exists()) dir.mkdirs()
         val file = File(dir, name)
-        file.outputStream().use { write(it, events) }
+        file.outputStream().use { writer(it) }
         ExportResult(file.absolutePath, null)
     } catch (e: Exception) {
         // API 28 이하에서는 저장소 권한이 필요하다. 없으면 여기서 실패한다.
@@ -107,12 +140,14 @@ object CsvExporter {
     private fun writeToAppDir(
         context: Context,
         name: String,
-        events: List<EventEntity>
+        subDir: String?,
+        writer: (OutputStream) -> Unit
     ): ExportResult? = try {
-        val dir = File(context.getExternalFilesDir(null) ?: context.filesDir, "export")
+        val base = File(context.getExternalFilesDir(null) ?: context.filesDir, "export")
+        val dir = if (subDir == null) base else File(base, subDir)
         if (!dir.exists()) dir.mkdirs()
         val file = File(dir, name)
-        file.outputStream().use { write(it, events) }
+        file.outputStream().use { writer(it) }
         ExportResult(
             displayPath = file.absolutePath,
             uri = FileProvider.getUriForFile(
@@ -125,7 +160,7 @@ object CsvExporter {
         null
     }
 
-    private fun write(out: OutputStream, events: List<EventEntity>) {
+    internal fun writeEvents(out: OutputStream, events: List<EventEntity>) {
         out.bufferedWriter(Charsets.UTF_8).use { w ->
             // 엑셀이 UTF-8을 한글로 제대로 읽게 하려면 파일 앞에 BOM이 필요하다.
             // 소스에 BOM 문자를 직접 넣으면 도구가 오해하므로 이스케이프로 쓴다.
@@ -140,10 +175,17 @@ object CsvExporter {
                         "%.1f".format(e.speedKmh),
                         "%.2f".format(e.judgedValue),
                         "%.1f".format(e.thresholdValue),
+                        "%.2f".format(e.meanKmhPerSec),
                         "%.2f".format(e.peakKmhPerSec),
+                        "%.2f".format(e.horizPeakMps2),
+                        "%.2f".format(e.horizLpfPeakMps2),
+                        e.signTrusted.yn(),
+                        e.signAgreement?.let { "%.2f".format(it) } ?: "",
                         "%.1f".format(e.turnAngleDeg),
                         e.turnDirection,
                         e.speedLimitKmh?.let { "%.0f".format(it) } ?: "",
+                        e.roadName?.replace(",", " ") ?: "",
+                        e.matchDistanceM?.let { "%.1f".format(it) } ?: "",
                         "%.6f".format(e.latitude),
                         "%.6f".format(e.longitude),
                         "%.1f".format(e.gpsAccuracyM),

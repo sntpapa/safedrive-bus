@@ -36,12 +36,21 @@ data class SensorFrame(
      * 노면 진동은 대부분 수직 성분이라 여기서 빠진다.
      */
     val horizontalAccelMps2: Float
+        get() = horizontalAccel.norm
+
+    /**
+     * 중력 방향 성분을 뺀 수평 가속도 벡터 (단말 좌표계).
+     *
+     * 크기만 쓰면 진동이 정류되어(절대값) 평균을 내도 사라지지 않는다. 벡터를 저역통과한
+     * 뒤 크기를 구해야 진동이 상쇄된다. 판정기의 대체 검증이 그렇게 쓴다.
+     */
+    val horizontalAccel: Vec3
         get() {
             val g = gravity
             val gn = g.norm
-            if (gn < 0.5f) return linearAccel.norm
+            if (gn < 0.5f) return linearAccel
             val u = g * (1f / gn)
             val lin = linearAccel
-            return (lin - u * (lin dot u)).norm
+            return lin - u * (lin dot u)
         }
 }

@@ -42,6 +42,8 @@ import com.safedrive.bus.sensor.SensorSampler
 import com.safedrive.bus.speedlimit.CompositeSpeedLimitProvider
 import com.safedrive.bus.speedlimit.ManualSpeedLimitProvider
 import com.safedrive.bus.speedlimit.NodeLinkSpeedLimitProvider
+import com.safedrive.bus.data.TripReportExporter
+import com.safedrive.bus.filter.LowPass1PVec3
 import com.safedrive.bus.speedlimit.SpeedLimitMatch
 import com.safedrive.bus.ui.MainActivity
 import com.safedrive.bus.util.AppPrefs
@@ -81,6 +83,9 @@ class DrivingService : LifecycleService() {
     private lateinit var judge: JudgementEngine
     private val review = ReviewTracker()
 
+    /** 수평 가속도 벡터 저역통과. 정렬 전 대체 검증이 진동에 부풀려지지 않게 한다. */
+    private val horizLpf = LowPass1PVec3(Constants.ACCEL_LPF_CUTOFF_HZ)
+
     private var sampler: SensorSampler? = null
     private var location: LocationSource? = null
     private var diagnostics: DiagnosticRecorder? = null
@@ -92,6 +97,11 @@ class DrivingService : LifecycleService() {
 
     @Volatile
     private var tripId = 0L
+
+    /** 이번 정차에서 종료 확인 알림을 이미 띄웠는지. 정차마다 한 번만 묻는다. */
+    private var idlePromptShown = false
+    /** 사용자가 "계속 운행"을 고른 정차의 시작 시각. 그 정차 동안에는 다시 묻지 않는다. */
+    private var idleAnsweredFor = 0L
 
     @Volatile
     private var currentSpeedLimitKmh: Double? = null
@@ -162,6 +172,17 @@ class DrivingService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        if (intent?.action == ACTION_PREVIEW_ALERT) {
+            // 설정 화면의 시험 재생. 수집 중이 아니면 TTS가 준비되지 않았으므로 무시한다.
+            alerts.preview("급감속")
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_KEEP_DRIVING) {
+            // 이번 정차 동안에는 다시 묻지 않는다. 출발했다가 또 오래 서면 새로 묻는다.
+            idleAnsweredFor = review.state().stoppedSinceWallMs
+            cancelIdleNotification()
+            return START_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             // 사용자가 직접 멈춘 것이므로 자동 시작이 다시 켜지 않도록 표시해 둔다.
             prefs.userStopped = true
@@ -212,6 +233,7 @@ class DrivingService : LifecycleService() {
         )
 
         aligner.reset()
+        horizLpf.reset()
         motion.reset()
         judge.reset()
         review.reset()
@@ -341,8 +363,20 @@ class DrivingService : LifecycleService() {
             dataGapMs = summary.totalDataGapMs,
             stallMs = summary.totalStallMs,
             gapCount = summary.gapCount,
-            unmatchedLimitSamples = judge.stats().unmatchedLimitSamples
+            unmatchedLimitSamples = judge.stats().unmatchedLimitSamples,
+            limitSampleTotal = judge.stats().limitSampleTotal
         )
+        // 새 운행이 시작되기 전에 어제 운행의 진단 값을 파일로 남긴다.
+        val finishedId = tripId
+        val reportSnap = Telemetry.state.value
+        SafeDriveApp.appScope.launch {
+            runCatching {
+                TripReportExporter.save(
+                    applicationContext, repo, finishedId, reportSnap,
+                    TripReportExporter.Trigger.MIDNIGHT
+                )
+            }
+        }
 
         startedAtWallMs = nowWall
         lastWarnWallMs = 0L
@@ -366,6 +400,9 @@ class DrivingService : LifecycleService() {
             .toLocalDate()
 
     private fun stopCollection() {
+        // 진단 값은 이 순간이 마지막이다. 다음 운행이 시작되면 초기화된다.
+        val reportSnap = Telemetry.state.value
+        cancelIdleNotification()
         sampler?.stop(); sampler = null
         location?.stop(); location = null
         diagnostics?.stop(); diagnostics = null
@@ -378,6 +415,7 @@ class DrivingService : LifecycleService() {
             val summary = gaps.snapshot()
             val distance = motionSnapshot.distanceM
             val unmatched = judge.stats().unmatchedLimitSamples
+            val limitTotal = judge.stats().limitSampleTotal
             // 서비스 스코프는 곧 취소되므로 마감은 애플리케이션 스코프에서 처리한다.
             SafeDriveApp.appScope.launch {
                 repo.finishTrip(
@@ -387,8 +425,17 @@ class DrivingService : LifecycleService() {
                     dataGapMs = summary.totalDataGapMs,
                     stallMs = summary.totalStallMs,
                     gapCount = summary.gapCount,
-                    unmatchedLimitSamples = unmatched
+                    unmatchedLimitSamples = unmatched,
+                    limitSampleTotal = limitTotal
                 )
+                // 스크린샷 대신 파일로 남긴다. 마감 뒤에 써야 거리·보류 비율이 확정값이고,
+                // 빈 운행으로 지워졌으면 저장하지 않는다. 실패해도 마감에는 영향이 없다.
+                runCatching {
+                    TripReportExporter.save(
+                        applicationContext, repo, id, reportSnap,
+                        TripReportExporter.Trigger.TRIP_END
+                    )
+                }
             }
         }
         // 사용자가 직접 멈춘 것이므로 다음 시작은 새 운행이다.
@@ -430,13 +477,23 @@ class DrivingService : LifecycleService() {
                 verticalMps2 = vehicleMotion?.vertical ?: 0f,
                 yawRateDps = snap.yawRateDps,
                 horizontalMps2 = frame.horizontalAccelMps2,
+                horizontalLpfMps2 = horizLpf.update(
+                    frame.horizontalAccel,
+                    if (frame.dtSec > 0.0 && frame.dtSec < 1.0) frame.dtSec else 0.02
+                ).norm,
                 latitude = snap.latitude,
                 longitude = snap.longitude,
                 gpsAccuracyM = snap.gpsAccuracyM,
                 speedAccuracyMps = snap.gpsSpeedAccuracyMps,
+                speedSuppressed = snap.gpsSpeedSuppressed,
                 speedLimitKmh = currentSpeedLimitKmh,
+                roadName = currentMatch?.roadName,
+                matchDistanceM = currentMatch?.distanceM,
                 gates = gateSnapshot,
                 pitchReliable = pitchReliable,
+                // 히스테리시스는 정렬기가 건다. 여기서 다시 계산하면 경계에서 깜빡인다.
+                forwardSignTrusted = alignSnapshot.forwardSignTrusted,
+                forwardSignAgreement = alignSnapshot.forwardSignAgreement,
                 vehicleFrameReady = vehicleMotion != null
             )
         )
@@ -569,6 +626,7 @@ class DrivingService : LifecycleService() {
 
             val nowWall = System.currentTimeMillis()
             rolloverIfNewDay(nowWall)
+            updateIdlePrompt(nowWall)
             if (sessionReady && nowWall - lastHeartbeatMs > Constants.SESSION_HEARTBEAT_INTERVAL_MS) {
                 lastHeartbeatMs = nowWall
                 prefs.sessionHeartbeat = nowWall
@@ -615,6 +673,84 @@ class DrivingService : LifecycleService() {
                 }
             )
         }
+        if (nm.getNotificationChannel(CHANNEL_IDLE_ID) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_IDLE_ID,
+                    getString(R.string.channel_idle),
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = getString(R.string.channel_idle_desc)
+                    setShowBadge(false)
+                }
+            )
+        }
+    }
+
+    /**
+     * 정차가 길어지면 알림을 띄우고, 출발하면 거둔다.
+     *
+     * 앱 안의 팝업과 같은 임계값(IDLE_END_PROMPT_MS)을 쓴다. 화면이 켜져 있으면
+     * 둘 다 보이지만, 꺼져 있으면 이 알림만 남는다.
+     */
+    private fun updateIdlePrompt(nowWall: Long) {
+        val r = review.state()
+        val since = r.stoppedSinceWallMs
+        if (!r.stopped || since == 0L) {
+            // 출발했다. 알림을 거두고 다음 정차를 위해 초기화한다.
+            cancelIdleNotification()
+            return
+        }
+        if (since == idleAnsweredFor) return
+        if (idlePromptShown) return
+        val idle = nowWall - since
+        if (idle < Constants.IDLE_END_PROMPT_MS) return
+        postIdleNotification(idle)
+    }
+
+    /**
+     * 오래 정차했을 때 운행을 끝낼지 알림으로 묻는다.
+     *
+     * 앱 안의 팝업은 화면이 켜져 있어야 보인다. 화면을 끈 채 하차하면 아무도 못 보고
+     * 운행이 자정까지 이어진다. 실측(2026-09-11)에서 하차 후 도보 구간이 운행에 섞여
+     * 급가속 경고까지 나갔다. 거리와 시간이 부풀려지면 100km 환산이 통째로 틀어진다.
+     *
+     * 포그라운드 알림과 별도 채널로 띄운다. 그쪽은 IMPORTANCE_LOW라 조용하고,
+     * 이건 놓치면 안 되기 때문이다.
+     */
+    private fun postIdleNotification(idleMs: Long) {
+        val stop = PendingIntent.getService(
+            this, 2,
+            Intent(this, DrivingService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val keep = PendingIntent.getService(
+            this, 3,
+            Intent(this, DrivingService::class.java).setAction(ACTION_KEEP_DRIVING),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val n = NotificationCompat.Builder(this, CHANNEL_IDLE_ID)
+            .setSmallIcon(R.drawable.ic_stat_drive)
+            .setContentTitle(getString(R.string.idle_title))
+            .setContentText("%s째 정차 중입니다.".format(formatIdle(idleMs)))
+            .addAction(0, getString(R.string.end_trip), stop)
+            .addAction(0, getString(R.string.keep_driving), keep)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(false)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(IDLE_NOTIFICATION_ID, n)
+        idlePromptShown = true
+    }
+
+    private fun cancelIdleNotification() {
+        if (!idlePromptShown) return
+        getSystemService(NotificationManager::class.java).cancel(IDLE_NOTIFICATION_ID)
+        idlePromptShown = false
+    }
+
+    private fun formatIdle(ms: Long): String {
+        val m = ms / 60_000L
+        return if (m > 0) "%d분".format(m) else "%d초".format(ms / 1000L)
     }
 
     private fun buildNotification(text: String): Notification {
@@ -668,9 +804,20 @@ class DrivingService : LifecycleService() {
     companion object {
         private const val CHANNEL_ID = "safedrive_service"
         private const val NOTIFICATION_ID = 1001
+        private const val CHANNEL_IDLE_ID = "safedrive_idle"
+        private const val IDLE_NOTIFICATION_ID = 1002
         private const val NOTIFICATION_UPDATE_MS = 3000L
         private const val WAKELOCK_TIMEOUT_MS = 12 * 60 * 60 * 1000L
         const val ACTION_STOP = "com.safedrive.bus.STOP"
+        const val ACTION_KEEP_DRIVING = "com.safedrive.bus.KEEP_DRIVING"
+        const val ACTION_PREVIEW_ALERT = "com.safedrive.bus.PREVIEW_ALERT"
+
+        /** 설정 화면에서 경고음·음성을 시험 재생한다. */
+        fun previewAlert(context: Context) {
+            context.startService(
+                Intent(context, DrivingService::class.java).setAction(ACTION_PREVIEW_ALERT)
+            )
+        }
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, DrivingService::class.java))

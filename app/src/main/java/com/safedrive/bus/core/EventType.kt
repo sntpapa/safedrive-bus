@@ -36,7 +36,10 @@ enum class SuppressReason(val label: String) {
     CONFLICTING_DIRECTION("직전과 반대 방향 · 잡음 의심"),
     IMPLAUSIBLE("차량 성능 초과 · 측정 오류 의심"),
     LOW_SNR("GPS 속도 잡음 대비 부족"),
-    IMU_MISMATCH("IMU 종가속도와 불일치")
+    IMU_MISMATCH("IMU 종가속도와 불일치"),
+    CLAMPED_LAUNCH("정지 잡음 억제 해제 계단"),
+    HORIZ_TOO_SMALL("수평 가속도가 판정값보다 작음"),
+    PHONE_HANDLING("폰 조작 의심 · 수평 가속 과대")
 }
 
 /** 회전 방향. */

@@ -58,6 +58,10 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE occurred_at >= :sinceMs ORDER BY occurred_at DESC")
     suspend fun since(sinceMs: Long): List<EventEntity>
 
+    /** 운행 한 건의 이벤트를 시간순으로. 운행 리포트 파일에 쓴다. */
+    @Query("SELECT * FROM events WHERE trip_id = :tripId ORDER BY occurred_at ASC")
+    suspend fun listByTrip(tripId: Long): List<EventEntity>
+
     @Query(
         "SELECT type, COUNT(*) AS total, SUM(CASE WHEN warned THEN 1 ELSE 0 END) AS warned " +
             "FROM events WHERE trip_id = :tripId AND suppress_reason != 'ABSORBED_BY_UTURN' " +

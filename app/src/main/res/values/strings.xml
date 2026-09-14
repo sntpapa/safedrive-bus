@@ -5,4 +5,9 @@
     <string name="channel_service">주행 수집</string>
     <string name="channel_service_desc">센서 수집이 동작 중임을 알립니다.</string>
     <string name="stop">정지</string>
+    <string name="channel_idle">운행 종료 확인</string>
+    <string name="channel_idle_desc">오래 정차했을 때 운행을 끝낼지 물어봅니다.</string>
+    <string name="idle_title">운행을 종료할까요?</string>
+    <string name="end_trip">운행 종료</string>
+    <string name="keep_driving">계속 운행</string>
 </resources>

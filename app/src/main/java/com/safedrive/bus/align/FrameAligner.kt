@@ -45,6 +45,16 @@ data class InvalidationRecord(
     val speedKmh: Float
 )
 
+/** 끝난 정렬 구간 하나의 요약. 저장 시점에 정렬이 깨져 있어도 리포트가 쓸 수 있게 남긴다. */
+data class AlignedSummary(
+    val endedWallMs: Long,
+    val durationMs: Long,
+    val signAgreement: Float,
+    val signSamples: Int,
+    val trusted: Boolean,
+    val endReason: String
+)
+
 data class AlignmentSnapshot(
     val state: AlignmentState = AlignmentState.WAITING_STATIONARY,
     /** 중력 확정 진행률 0..1 */
@@ -61,6 +71,21 @@ data class AlignmentSnapshot(
     val mountRateDps: Float = 0f,
     /** 최근 재보정 이력. 최신이 뒤. */
     val invalidations: List<InvalidationRecord> = emptyList(),
+    /** 전방축 부호가 GPS와 일치하는 비율. 표본이 없으면 NaN. */
+    val forwardSignAgreement: Float = Float.NaN,
+    val forwardSignSamples: Int = 0,
+    /** 전방축을 뒤집은 횟수. */
+    val forwardFlipCount: Int = 0,
+    /** 히스테리시스를 건 부호 신뢰 상태. 판정기는 이 값을 쓴다. */
+    val forwardSignTrusted: Boolean = false,
+    /** 이번 운행에서 정렬이 완료돼 있던 누적 시간 [ms]. 재보정해도 지우지 않는다. */
+    val alignedTotalMs: Long = 0L,
+    /** 그중 부호를 신뢰한(IMU 교차검증을 쓴) 누적 시간 [ms]. */
+    val trustedTotalMs: Long = 0L,
+    /** 현재 정렬 구간의 지속 시간 [ms]. */
+    val alignedSegmentMs: Long = 0L,
+    /** 마지막으로 끝난 정렬 구간의 요약. 종점에서 폰을 다뤄 정렬이 깨져도 남는다. */
+    val lastAligned: AlignedSummary? = null,
     val mountStable: Boolean = true,
     /** 마지막으로 정렬이 깨진 이유. UI 표시용. */
     val lastInvalidationReason: String = "",
@@ -155,6 +180,7 @@ class FrameAligner {
     private var prevGravityUnit: Vec3? = null
     private val mountRateLpf = LowPass1P(2.0)
     private var rateExceedSinceMs = 0L
+    private var gyroExceedSinceMs = 0L
     private var deviationExceedSinceMs = 0L
     private var mountDeviationDeg = 0f
     private var mountStable = true
@@ -169,6 +195,33 @@ class FrameAligner {
     private var invalidationCount = 0
     private var lastGyroDps = 0f
     private var lastSpeedKmh = 0f
+
+    // 전방축 부호 검증. 정렬이 끝난 뒤에도 GPS와 계속 대조한다.
+    private var signAgree = 0
+    private var signTotal = 0
+    private var forwardFlipCount = 0
+
+    /**
+     * 부호 대조에 쓰는 종가속도의 저역통과.
+     *
+     * 원시 종가속도로 대조하면 노면 진동이 실제 신호를 덮는다. 실측(2026-09-13,
+     * 두 기기)에서 정렬이 끝났는데도 일치율이 52~56%에 머물렀고, 급가속 이벤트의
+     * 절반에서 부호가 반대였다. 같은 구간의 IMU 종가속도 크기 중앙값은 0.6 m/s²인데
+     * 진동 스파이크는 1.5~2.9 m/s²로 들어온다. 신호보다 잡음이 크면 부호는 동전 던지기다.
+     *
+     * 판정에 쓰는 값과 같은 2Hz 저역통과를 걸어 같은 것을 비교한다.
+     */
+    private val signLpf = LowPass1P(Constants.ACCEL_LPF_CUTOFF_HZ)
+
+    /** 히스테리시스를 건 부호 신뢰 상태. 켤 때 70%, 끌 때 55%. */
+    private var signTrusted = false
+
+    // 운행 전체 누적. reset()으로 지우지 않는다. 종점에서 폰을 다루면 정렬이 깨져
+    // 리포트의 저장 시점 값이 전부 비어 버렸기 때문이다(실측 2026-09-14, 5회 운행 모두).
+    private var alignedTotalMs = 0L
+    private var trustedTotalMs = 0L
+    private var alignedSegmentMs = 0L
+    private var lastAligned: AlignedSummary? = null
     private val invalidations = ArrayDeque<InvalidationRecord>()
 
     // --- 정차 판정 진단 ---
@@ -181,6 +234,7 @@ class FrameAligner {
         state = AlignmentState.WAITING_STATIONARY
         clearGravityAccumulator()
         clearForwardAccumulator()
+        clearSignCheck()
         vehicleUp = null; vehicleForward = null; vehicleLeft = null
         basisE1 = null; basisE2 = null
         prevGravityUnit = null
@@ -189,6 +243,7 @@ class FrameAligner {
         mountRateLpf.reset()
         rateExceedSinceMs = 0L
         deviationExceedSinceMs = 0L
+        gyroExceedSinceMs = 0L
         mountDeviationDeg = 0f
         mountStable = true
     }
@@ -228,7 +283,11 @@ class FrameAligner {
                 return null
             }
 
-            AlignmentState.ALIGNED -> return toVehicleMotion(frame)
+            AlignmentState.ALIGNED -> {
+                val motion = toVehicleMotion(frame) ?: return null
+                verifyForwardSign(motion.longitudinal, gpsAccelMps2, gpsFresh, frame)
+                return motion
+            }
         }
     }
 
@@ -268,7 +327,16 @@ class FrameAligner {
             gravitySamples = gravityCount,
             gravityStdDev = lastGravityStd,
             stationaryBlockedBy = stationaryBlockedBy,
-            invalidations = invalidations.toList()
+            invalidations = invalidations.toList(),
+            forwardSignAgreement = if (signTotal == 0) Float.NaN
+            else signAgree.toFloat() / signTotal,
+            forwardSignSamples = signTotal,
+            forwardFlipCount = forwardFlipCount,
+            forwardSignTrusted = signTrusted,
+            alignedTotalMs = alignedTotalMs,
+            trustedTotalMs = trustedTotalMs,
+            alignedSegmentMs = alignedSegmentMs,
+            lastAligned = lastAligned
         )
     }
 
@@ -346,6 +414,7 @@ class FrameAligner {
 
         clearGravityAccumulator()
         clearForwardAccumulator()
+        clearSignCheck()
         state = AlignmentState.COLLECTING_FORWARD
     }
 
@@ -466,6 +535,14 @@ class FrameAligner {
         state = AlignmentState.ALIGNED
     }
 
+    private fun clearSignCheck() {
+        signAgree = 0
+        signTotal = 0
+        signLpf.reset()
+        signTrusted = false
+        alignedSegmentMs = 0L
+    }
+
     private fun clearForwardAccumulator() {
         sxx = 0.0; sxy = 0.0; syy = 0.0
         sumUx = 0.0; sumUy = 0.0
@@ -537,11 +614,23 @@ class FrameAligner {
             deviationExceedSinceMs = 0L
         }
 
-        // 3차 지표: 정상 주행에서 나올 수 없는 각속도. 폰을 손으로 다루는 동작.
+        // 2차 지표: 정상 주행에서 나올 수 없는 각속도. 폰을 손으로 다루는 동작.
+        //
+        // 지속 조건이 필요하다. 단발 스파이크 하나로 무효화하면 정렬이 계속 리셋된다.
+        // 실측(2026-09-11, 5시간 운행)에서 재보정이 41회였고 사유가 전부 이것이었다.
+        // 7분마다 정렬이 처음부터 다시 시작된 셈이다.
+        //
+        // 기록된 값이 203~230°/s로 임계 200을 겨우 넘는다. 폰을 실제로 손에 쥐면
+        // 수백~1000°/s가 나오고 그 상태가 이어진다. 이 값들은 센서 스파이크다.
+        // 자이로는 FIFO가 없어(0/10000) 배칭 없이 순간 피크가 그대로 들어온다.
         val gyroDps = Math.toDegrees(frame.gyro.norm.toDouble())
         if (gyroDps > Constants.MOUNT_ABSURD_GYRO_DPS) {
+            if (gyroExceedSinceMs == 0L) gyroExceedSinceMs = nowMs
+            if (nowMs - gyroExceedSinceMs < Constants.MOUNT_GYRO_SUSTAIN_MS) return
             invalidate(nowMs, "비정상 각속도 %.0f°/s".format(gyroDps))
             return
+        } else {
+            gyroExceedSinceMs = 0L
         }
 
         mountStable = true
@@ -563,6 +652,16 @@ class FrameAligner {
             )
         )
         while (invalidations.size > MAX_INVALIDATION_RECORDS) invalidations.removeFirst()
+        if (state == AlignmentState.ALIGNED) {
+            lastAligned = AlignedSummary(
+                endedWallMs = System.currentTimeMillis(),
+                durationMs = alignedSegmentMs,
+                signAgreement = if (signTotal == 0) Float.NaN else signAgree.toFloat() / signTotal,
+                signSamples = signTotal,
+                trusted = signTrusted,
+                endReason = reason
+            )
+        }
         reset()
         // reset()은 내부 상태만 되돌린다. 이탈 직후 일정 시간은 게이트를 계속 막아
         // 화면에 "재보정 중"이 확실히 보이도록 한다.
@@ -579,6 +678,69 @@ class FrameAligner {
     }
 
     // ------------------------------------------------------------------
+
+    /**
+     * 전방축의 부호가 맞는지 GPS와 계속 대조한다.
+     *
+     * 전방축 부호는 수집 단계에서 GPS 속도 증감으로 정했는데, 도플러 속도가 0.5~1초
+     * 늦기 때문에 제동 구간에서 부호가 뒤집힌 샘플이 섞인다. 실측에서 그 비율이
+     * 23~42%였고, 결과적으로 전방축이 통째로 반대로 잡히는 일이 생겼다.
+     *
+     * 2026-09-11 실측(정렬 완료 구간)에서 GPS와 IMU의 부호 일치율이 시간대별로
+     * 18~58%였다. 동전 던지기와 다를 바 없어, 이 값으로 한 억제는 믿을 수 없다.
+     *
+     * 그래서 결과를 정답(GPS)과 직접 맞춰 본다. 표준편차 같은 간접 지표를 추측하는
+     * 것보다 확실하다.
+     *
+     *   30% 이하 -> 축을 뒤집는다. 부호만 반대인 경우다.
+     *   70% 이상 -> 신뢰. IMU 교차검증을 쓴다.
+     *   그 사이  -> 축이 실제 진행방향과 비스듬한 것이다. 교차검증을 쓰지 않는다.
+     */
+    private fun verifyForwardSign(
+        longitudinal: Float,
+        gpsAccelMps2: Float?,
+        gpsFresh: Boolean,
+        frame: SensorFrame
+    ) {
+        // 필터 상태는 끊기지 않게 항상 갱신한다. 대조 여부와 무관하다.
+        val dt = if (frame.dtSec > 0.0 && frame.dtSec < 1.0) frame.dtSec else 0.02
+        val smoothed = signLpf.update(longitudinal.toDouble(), dt).toFloat()
+
+        val dtMs = (dt * 1000).toLong()
+        alignedTotalMs += dtMs
+        alignedSegmentMs += dtMs
+        if (signTrusted) trustedTotalMs += dtMs
+
+        if (frame.degraded || !gpsFresh || gpsAccelMps2 == null) return
+        if (abs(gpsAccelMps2) < Constants.FWD_MIN_GPS_ACCEL_MPS2) return
+        if (abs(smoothed) < Constants.FWD_MIN_HORIZ_ACCEL_MPS2) return
+
+        signTotal++
+        if ((smoothed >= 0f) == (gpsAccelMps2 >= 0f)) signAgree++
+
+        if (signTotal < Constants.SIGN_CHECK_MIN_SAMPLES) return
+
+        val rate = signAgree.toFloat() / signTotal
+        // 켤 때와 끌 때 기준을 다르게 둔다. 같은 기준이면 경계에서 깜빡인다.
+        if (!signTrusted && rate >= Constants.SIGN_TRUST_RATIO) {
+            signTrusted = true
+        } else if (signTrusted && rate < Constants.SIGN_UNTRUST_RATIO) {
+            signTrusted = false
+        }
+        if (rate <= Constants.SIGN_FLIP_RATIO) {
+            // 통째로 반대다. 뒤집고 다시 센다.
+            vehicleForward = vehicleForward?.let { it * -1f }
+            vehicleLeft = vehicleLeft?.let { it * -1f }
+            forwardFlipCount++
+            signTrusted = false
+            signAgree = 0
+            signTotal = 0
+        } else if (signTotal >= Constants.SIGN_CHECK_MIN_SAMPLES * 4) {
+            // 창을 굴려 최근 경향만 본다. 절반씩 줄인다.
+            signAgree /= 2
+            signTotal /= 2
+        }
+    }
 
     private fun toVehicleMotion(frame: SensorFrame): VehicleMotion? {
         val f = vehicleForward ?: return null
