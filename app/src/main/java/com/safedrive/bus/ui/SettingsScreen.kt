@@ -125,8 +125,10 @@ fun SettingsScreen(
                     onChange = onToggleAutoStart
                 )
                 ToggleRow(
-                    title = "진단 모드 (자이로 원시값 저장)",
-                    subtitle = "평상시에는 저장하지 않습니다. 켜면 기기 내부 CSV로만 남습니다.",
+                    title = "진단 모드 (센서 원시값 저장)",
+                    subtitle = "판정 방식을 다시 계산해 보기 위한 기록입니다. " +
+                        "다운로드/SafeDrive 폴더에 저장되며 2시간에 약 100MB입니다. " +
+                        "평상시에는 꺼 두세요.",
                     checked = diagnosticRecording,
                     onChange = onToggleDiagnostic
                 )

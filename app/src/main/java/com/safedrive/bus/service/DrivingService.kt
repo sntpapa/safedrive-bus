@@ -44,6 +44,7 @@ import com.safedrive.bus.speedlimit.ManualSpeedLimitProvider
 import com.safedrive.bus.speedlimit.NodeLinkSpeedLimitProvider
 import com.safedrive.bus.data.TripReportExporter
 import com.safedrive.bus.filter.LowPass1PVec3
+import com.safedrive.bus.judge.ShadowJudge
 import com.safedrive.bus.speedlimit.SpeedLimitMatch
 import com.safedrive.bus.ui.MainActivity
 import com.safedrive.bus.util.AppPrefs
@@ -85,6 +86,15 @@ class DrivingService : LifecycleService() {
 
     /** 수평 가속도 벡터 저역통과. 정렬 전 대체 검증이 진동에 부풀려지지 않게 한다. */
     private val horizLpf = LowPass1PVec3(Constants.ACCEL_LPF_CUTOFF_HZ)
+
+    /**
+     * GPS·IMU 융합 판정의 그림자 실행. **경고에는 관여하지 않는다.**
+     * 같은 운행에서 두 방식의 건수를 나란히 남겨 전환 여부를 숫자로 정하기 위한 것이다.
+     */
+    private val shadow = ShadowJudge()
+
+    /** 새 GPS fix를 구분하기 위한 마지막 수신 시각. */
+    private var lastGpsWallMs = 0L
 
     private var sampler: SensorSampler? = null
     private var location: LocationSource? = null
@@ -234,6 +244,8 @@ class DrivingService : LifecycleService() {
 
         aligner.reset()
         horizLpf.reset()
+        shadow.reset()
+        lastGpsWallMs = 0L
         motion.reset()
         judge.reset()
         review.reset()
@@ -369,11 +381,13 @@ class DrivingService : LifecycleService() {
         // 새 운행이 시작되기 전에 어제 운행의 진단 값을 파일로 남긴다.
         val finishedId = tripId
         val reportSnap = Telemetry.state.value
+        val shadowEvents = shadow.events()
         SafeDriveApp.appScope.launch {
             runCatching {
                 TripReportExporter.save(
                     applicationContext, repo, finishedId, reportSnap,
-                    TripReportExporter.Trigger.MIDNIGHT
+                    TripReportExporter.Trigger.MIDNIGHT,
+                    shadow = shadowEvents
                 )
             }
         }
@@ -402,6 +416,7 @@ class DrivingService : LifecycleService() {
     private fun stopCollection() {
         // 진단 값은 이 순간이 마지막이다. 다음 운행이 시작되면 초기화된다.
         val reportSnap = Telemetry.state.value
+        val shadowEvents = shadow.events()
         cancelIdleNotification()
         sampler?.stop(); sampler = null
         location?.stop(); location = null
@@ -433,7 +448,8 @@ class DrivingService : LifecycleService() {
                 runCatching {
                     TripReportExporter.save(
                         applicationContext, repo, id, reportSnap,
-                        TripReportExporter.Trigger.TRIP_END
+                        TripReportExporter.Trigger.TRIP_END,
+                        shadow = shadowEvents
                     )
                 }
             }
@@ -450,7 +466,6 @@ class DrivingService : LifecycleService() {
 
     private fun onSensorFrame(frame: SensorFrame) {
         gaps.onFrame(frame.timestampNs)
-        diagnostics?.write(frame)
 
         val vehicleMotion = aligner.process(
             frame = frame,
@@ -463,6 +478,23 @@ class DrivingService : LifecycleService() {
         motion.onFrame(frame.dtSec, vehicleMotion, pitchReliable)
 
         val snap = motion.snapshot()
+
+        // 원시 기록과 그림자 판정. 둘 다 경고에는 관여하지 않는다.
+        val gpsSample = motion.lastGpsSample
+        val gpsIsNewFix = gpsSample != null && gpsSample.wallMs != lastGpsWallMs
+        if (gpsIsNewFix) lastGpsWallMs = gpsSample!!.wallMs
+        diagnostics?.write(frame, vehicleMotion?.longitudinal, gpsSample, gpsIsNewFix)
+        shadow.feed(
+            timestampNs = frame.timestampNs,
+            dtSec = frame.dtSec,
+            longitudinalMps2 = if (vehicleMotion == null) null else snap.longitudinalMps2,
+            gpsSpeedMps = motion.gpsSpeedMps,
+            gpsIsNewFix = gpsIsNewFix,
+            wallMs = System.currentTimeMillis(),
+            gpsValueKmhPerSec = snap.gpsAccelKmhPerSec,
+            latitude = snap.latitude,
+            longitude = snap.longitude
+        )
 
         // 판정은 게이트와 무관하게 항상 돌린다. 게이트는 경고를 낼지 여부만 결정한다.
         // 좌표계 정렬이 끝나지 않아도 가감속·과속은 GPS 속도만으로 판정할 수 있다.

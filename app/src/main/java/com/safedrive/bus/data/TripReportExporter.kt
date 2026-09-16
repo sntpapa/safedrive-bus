@@ -6,6 +6,7 @@ import androidx.core.content.pm.PackageInfoCompat
 import com.safedrive.bus.core.Constants
 import com.safedrive.bus.core.EventType
 import com.safedrive.bus.core.SuppressReason
+import com.safedrive.bus.judge.ShadowEvent
 import com.safedrive.bus.sensor.GravitySource
 import com.safedrive.bus.sensor.SensorInfo
 import com.safedrive.bus.service.TelemetrySnapshot
@@ -57,7 +58,9 @@ object TripReportExporter {
         tripId: Long,
         snap: TelemetrySnapshot,
         trigger: Trigger,
-        liveDistanceM: Double? = null
+        liveDistanceM: Double? = null,
+        /** 그림자 판정 결과. 경고에는 쓰이지 않았고 비교용으로만 남긴다. */
+        shadow: List<ShadowEvent> = emptyList()
     ): Result? {
         if (tripId == 0L) return null
         // 빈 운행은 마감 때 지워진다. 그때는 남길 것이 없다.
@@ -68,7 +71,7 @@ object TripReportExporter {
         // 운행 중 여러 번 저장해도 덮어쓰지 않도록 저장 시각을 붙인다.
         if (trigger == Trigger.MANUAL) base += "_at${clockStamp.format(Date())}"
 
-        val text = buildReport(context, trip, events, snap, trigger, liveDistanceM)
+        val text = buildReport(context, trip, events, snap, trigger, liveDistanceM, shadow)
         val report = CsvExporter.saveToDownloads(
             context, "${base}_report.txt", "text/plain", SUB_DIR
         ) { out ->
@@ -77,6 +80,11 @@ object TripReportExporter {
         val csv = CsvExporter.saveToDownloads(
             context, "${base}_events.csv", "text/csv", SUB_DIR
         ) { out -> CsvExporter.writeEvents(out, events) }
+        if (shadow.isNotEmpty()) {
+            CsvExporter.saveToDownloads(
+                context, "${base}_shadow.csv", "text/csv", SUB_DIR
+            ) { out -> writeShadow(out, shadow) }
+        }
         return Result(report, csv)
     }
 
@@ -86,7 +94,8 @@ object TripReportExporter {
         events: List<EventEntity>,
         snap: TelemetrySnapshot,
         trigger: Trigger,
-        liveDistanceM: Double?
+        liveDistanceM: Double?,
+        shadow: List<ShadowEvent>
     ): String = buildString {
         val now = System.currentTimeMillis()
         fun line(s: String = "") = append(s).append('\n')
@@ -197,6 +206,29 @@ object TripReportExporter {
         }
 
         // ------------------------------------------------------------------
+        section("그림자 판정 · GPS+IMU 융합 (경고 안 나감)")
+        line("  지금 방식(GPS 1초 차분)과 나란히 계산만 한 결과다. 전환 여부를 정하기 위한 비교용.")
+        line("  정렬이 끝난 구간에서만 계산된다. 상세는 같은 이름의 _shadow.csv 참고.")
+        if (shadow.isEmpty()) {
+            line("  결과 없음 (정렬 완료 구간이 없었거나 기준을 넘은 건이 없음)")
+        } else {
+            line("  유형 · 그림자 · 지금 방식(경고) · 그림자/100km")
+            for (t in LONGITUDINAL) {
+                val n = shadow.count { it.type == t }
+                val warned = counted.count { it.type == t.name && it.warned }
+                if (n == 0 && warned == 0) continue
+                line("  %s · %d · %d · %s".format(t.label, n, warned, per100km(n, distanceKm)))
+            }
+            val warnedLong = counted.count {
+                it.warned && LONGITUDINAL.any { t -> t.name == it.type }
+            }
+            line(
+                "  합계 · %d · %d · %s".format(
+                    shadow.size, warnedLong, per100km(shadow.size, distanceKm)
+                )
+            )
+        }
+
         section("좌표계 보정 · 운행 전체")
         // 저장 시점 값은 종점에서 폰을 다루면 비어 버린다. 운행 전체 누적을 먼저 적는다.
         val a0 = snap.alignment
@@ -317,6 +349,30 @@ object TripReportExporter {
         // ------------------------------------------------------------------
         section("제한속도")
         kv("도로 데이터", snap.roadDataSource.ifEmpty { "-" })
+    }
+
+    private fun writeShadow(out: java.io.OutputStream, shadow: List<ShadowEvent>) {
+        out.bufferedWriter(Charsets.UTF_8).use { w ->
+            w.write("\uFEFF")
+            w.write("발생시각,유형,융합속도_kmh,융합판정값,임계값,GPS판정값,편향_mps2,위도,경도")
+            w.write("\n")
+            for (e in shadow) {
+                w.write(
+                    listOf(
+                        timeStamp.format(Date(e.wallMs)),
+                        e.type.label,
+                        "%.1f".format(e.speedKmh),
+                        "%.2f".format(e.judgedValue),
+                        "%.1f".format(e.threshold),
+                        "%.2f".format(e.gpsValue),
+                        "%.3f".format(e.biasMps2),
+                        "%.6f".format(e.latitude),
+                        "%.6f".format(e.longitude)
+                    ).joinToString(",")
+                )
+                w.write("\n")
+            }
+        }
     }
 
     private fun sameSign(a: Float, b: Float): Boolean = (a >= 0f) == (b >= 0f)

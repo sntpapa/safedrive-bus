@@ -199,6 +199,9 @@ class MotionEstimator {
         }
     }
 
+    /** 마지막 GPS 표본. 원시 기록에 방위·정확도까지 남기기 위해 그대로 노출한다. */
+    val lastGpsSample: GpsSample? get() = lastGps
+
     fun snapshot(): MotionSnapshot {
         val g = lastGps
         val stationary = fusedSpeedMps < Constants.STATIONARY_SPEED_MPS
